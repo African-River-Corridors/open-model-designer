@@ -1,0 +1,27 @@
+standard:
+  inflation:
+    - from: 2025-01-01
+      value: 0.03
+      unit: ratio/year
+      label: Inflation
+      source: Central bank outlook 2025
+      date: 2024-12-01
+      who: D. Person
+      estimate: true
+    - from: 2026-07-01
+      value: 0.04
+      unit: ratio/year
+      label: Inflation
+      source: Central bank outlook 2026
+      date: 2026-06-15
+      who: D. Person
+      estimate: true
+  unit_price:
+    - from: 2025-01-01
+      value: 10.0
+      unit: USD/tonne
+      label: Unit price
+      source: Library price list
+      date: 2024-12-01
+      who: D. Person
+      estimate: false

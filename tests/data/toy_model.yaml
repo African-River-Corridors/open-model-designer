@@ -1,0 +1,30 @@
+timeline:
+  periodicity: monthly
+  start: 2027-01-01
+  horizon_years: 2
+
+assumptions:
+  unit_price:
+    value: 12.5
+    unit: USD/tonne
+    label: Unit price
+    source: Supplier quote Q-104
+    date: 2026-09-30
+    who: A. Person
+    estimate: false
+  volume:
+    value: 8
+    unit: tonne/month
+    label: Volume
+    source: Operating plan v2
+    date: 2026-10-01
+    who: B. Person
+    estimate: true
+  tax_rate:
+    value: 0.2
+    unit: ratio
+    label: Tax rate
+    source: Statute extract
+    date: 2026-01-15
+    who: C. Person
+    estimate: false

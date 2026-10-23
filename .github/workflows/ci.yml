@@ -1,0 +1,97 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --python 3.12
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+
+  # The test files, dealt into 4 shards by tools/shard.py (every file in exactly one). The per-module "all criteria"
+  # tests are not here: the acceptance job below runs every criterion on every module once.
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --python 3.12
+      - run: uv run pytest -n auto $(python3 tools/shard.py 4 ${{ matrix.shard }})
+
+  # The template gates (tests/templates). Each slow gate re-evaluates the workbook once per row or input, so the audits
+  # are cut into shards (the ids in tests/templates/test_project_finance.py; tests/test_ci_shards.py checks this list
+  # names every one) and each shard is a job. Every row and input is still audited, once. "rest" is everything else.
+  template:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        gate:
+          - corruption-0of6
+          - corruption-1of6
+          - corruption-2of6
+          - corruption-3of6
+          - corruption-4of6
+          - corruption-5of6
+          - drive-0of4
+          - drive-1of4
+          - drive-2of4
+          - drive-3of4
+          - inputs-0of3
+          - inputs-1of3
+          - inputs-2of3
+          - rest
+    name: template (${{ matrix.gate }})
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --python 3.12
+      - name: Template gate ${{ matrix.gate }}
+        run: |
+          if [ "${{ matrix.gate }}" = rest ]; then
+            uv run pytest tests/templates -k "not corruption- and not drive- and not inputs-"
+          else
+            uv run pytest tests/templates -k "${{ matrix.gate }}"
+          fi
+
+  acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --python 3.12
+      - name: Module acceptance (every module in omd.modules, found automatically; all six criteria)
+        run: uv run python -m omd.acceptance --all omd.modules --shard ${{ matrix.shard }}/4
+
+  release-guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Guarded terms and local paths (tree)
+        run: python tools/release_guard.py
+      - name: Guarded terms and local paths (history)
+        run: python tools/release_guard.py --history

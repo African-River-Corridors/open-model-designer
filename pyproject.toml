@@ -1,0 +1,42 @@
+[project]
+name = "omd"
+version = "0.1.0"
+description = "Open Model Designer: turns a model's six inputs into a FAST-structured, self-checking workbook."
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.12"
+dependencies = ["openpyxl>=3.1", "formulas>=1.2", "pyyaml>=6"]
+
+[project.scripts]
+omd-sheet = "omd.sheet.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-xdist>=3.8.0",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/omd"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tools", "tests/harness"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["tools/embargo.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+ignore = ["E501", "B905"]
+
+[tool.ruff.lint.per-file-ignores]
+# fastblock is merged from two models that build byte-identical workbooks; keep its code as is.
+"src/omd/harness/fastblock.py" = ["E731", "B007"]
