@@ -41,6 +41,15 @@ a golden case and a scope note. A module is accepted only if it passes all six c
 The golden cases are independent hand calculations by a reviewer agent that did not see the code.
 The requests and the working are in [docs/golden-cases/](docs/golden-cases/).
 
+## Install
+
+```bash
+pip install open-model-designer
+```
+
+The distribution is `open-model-designer`; the package you import is `omd`. (The name `omd` on PyPI belongs
+to another project.) It is not on PyPI yet: until the first release, install from a clone with `uv sync`.
+
 ## Run it
 
 ```bash
