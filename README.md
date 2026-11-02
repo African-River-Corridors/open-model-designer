@@ -67,6 +67,10 @@ To check one module: `uv run python -m omd.acceptance omd.modules.cfads:MODULE`.
 OMD was built with AI coding agents, under human review. The golden cases were calculated by separate agents
 that did not see the code. A person reviews the design and the results.
 
+## Pre-push hook
+
+`sankofa-prepush` (from the ARC workflows repo) runs `ruff format --check`, `ruff check` and the release guard on every `git push`, on the files the push changes. Install it once per clone with `sankofa-prepush install`. If it blocks, run the fix it prints, commit, and push again.
+
 ## Licence
 
 Apache-2.0. See [LICENSE](LICENSE).
