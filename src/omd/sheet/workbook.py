@@ -574,6 +574,13 @@ class Workbook:
 
         return cover(self, title=title or self.title, **kw)
 
+    # -- Key figures -------------------------------------------------------------------------
+    def key_figures(self, name: str, items, **kw) -> Worksheet:
+        """The headline figures, each a live formula over a Calcs row. See :func:`omd.sheet.outputs.key_figures`."""
+        from .outputs import key_figures
+
+        return key_figures(self, name, items, **kw)
+
     # -- finalise -----------------------------------------------------------------------------
     def autosize(self) -> None:
         for ws in self._wb.worksheets:
