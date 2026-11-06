@@ -31,6 +31,16 @@ N_PERIODS = acceptance.N_PERIODS
 class Step:
     module: Module
     wiring: dict[str, str]  # input port -> "ext:<name>" or "<module name>.<port>"
+    title: str | None = None  # the module's header on Calcs; default: its name in words
+    note: str | None = None  # the logic note under the header; default: the module's scope ("in")
+
+    @property
+    def header(self) -> str:
+        return self.title or self.module.name.replace("_", " ").capitalize()
+
+    @property
+    def logic_note(self) -> str:
+        return self.note or "; ".join(self.module.scope.get("in", []))
 
 
 @dataclass
@@ -127,7 +137,10 @@ def compose(
             for i, v in enumerate(external[k]):
                 feed.cell(row=r, column=3 + i, value=float(v))
             sources_ext[k] = f"Feed!{{col}}{r}"
-    calcs = wb.calcs()
+    # The contents list sits at the top of Calcs and is written last: one line per chapter, plus a heading and a hint.
+    chapters_planned = 1 + len(steps) + (1 if link_checks else 0)
+    calcs = wb.calcs(reserve=chapters_planned + 3)
+    chapters: list[list] = [["Timeline", calcs.reserved[1], None]]  # [title, header row, last row]
 
     ctxs: dict[str, BuildContext] = {}
     specs: dict[str, dict[str, str]] = {}
@@ -147,6 +160,8 @@ def compose(
                 else:
                     sources[p.name] = f"{calcs.ws.title}!{{col}}{row}"
         ctx = BuildContext(m, calcs, n, sources, _inputs_of(st, external, expected))
+        calcs.skip_rows()
+        chapters.append([st.header, calcs.chapter(st.header, note=st.logic_note), None])
         first = calcs.next_row
         m.build(ctx)
         specs[m.name] = m.checks(ctx)
@@ -164,7 +179,16 @@ def compose(
     }
     if link_checks:
         calcs.skip_rows()
-        calcs.section("Template checks")
+        chapters.append(
+            [
+                "Template checks",
+                calcs.chapter(
+                    "Template checks",
+                    note="Checks that join modules where the ports cannot; each reads 0 when it holds",
+                ),
+                None,
+            ]
+        )
         first = calcs.next_row
         for i, (label, fn) in enumerate(link_checks):
             calcs.row(
@@ -177,8 +201,41 @@ def compose(
         specs["template"] = {
             f"tpl{i}": f"  {label}".strip() for i, (label, _fn) in enumerate(link_checks)
         }
+    _contents(calcs, chapters)
     _summary(comp)
     return comp
+
+
+def _contents(calcs, chapters: list[list]) -> None:
+    """Fill the reserved rows with a hyperlinked contents list, and group the body of every chapter so the sheet
+    collapses to its headers. The header and its logic note stay visible when a chapter is collapsed."""
+    from openpyxl.worksheet.hyperlink import Hyperlink
+
+    ws, style = calcs.ws, calcs.workbook.style
+    top, end = calcs.reserved
+    assert top + 3 + len(chapters) <= end + 1, "the contents list outgrew the rows reserved for it"
+    for i, ch in enumerate(chapters):
+        ch[2] = (chapters[i + 1][1] - 1) if i + 1 < len(chapters) else calcs.next_row - 1
+    style.section(ws.cell(row=top, column=1, value="Contents"))
+    style.rule_below(ws, top, calcs.last_col)
+    style.note(
+        ws.cell(
+            row=top + 1,
+            column=1,
+            value="Click a line to go to it. The outline handles on the left collapse each part to its header.",
+        )
+    )
+    for i, (title, hdr, _last) in enumerate(chapters):
+        cell = ws.cell(row=top + 2 + i, column=1, value=f"  {title}")
+        cell.hyperlink = Hyperlink(ref=cell.coordinate, location=f"'{ws.title}'!A{hdr}")
+        cell.style = "Hyperlink"
+    ws.sheet_properties.outlinePr.summaryBelow = False
+    for title, hdr, last in chapters:
+        body = hdr + (
+            2 if title != "Timeline" else 1
+        )  # leave the header and its logic note visible
+        for r in range(body, last + 1):
+            ws.row_dimensions[r].outlineLevel = 1
 
 
 def _summary(comp: Composed) -> None:

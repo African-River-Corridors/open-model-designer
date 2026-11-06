@@ -29,6 +29,8 @@ own, built and checked like any module's. Choices a reader should know:
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from ..modules import (
     capex_funding,
     cash_sweep_percent,
@@ -143,8 +145,45 @@ GLUE_DRIVERS = glue(
 )  # fmt: skip
 
 
+#: the header of each module on the Calcs sheet, in the order the cash and the accounts run
+TITLES = {
+    "scenarios": "Scenarios and sensitivities",
+    "glue_drivers": "Live drivers: price, volume and operating cost under the selected scenario",
+    "take_or_pay": "Revenue: take-or-pay",
+    "capex_funding": "Capital cost and its funding",
+    "idc": "Interest during construction",
+    "fixed_assets": "Fixed assets and depreciation",
+    "tax_pool_rb": "Tax depreciation pool (reducing balance)",
+    "debt_repay_linear": "Senior debt: repayment and interest",
+    "sub_loan": "Subordinated loan",
+    "glue_pl": "Profit before tax",
+    "tax_losses": "Tax losses carried forward",
+    "tax_engine": "Tax charge and tax paid",
+    "working_capital": "Working capital",
+    "cfads": "Cash flow available for debt service (CFADS)",
+    "cover_ratios": "Cover ratios: DSCR and LLCR",
+    "dsra": "Debt service reserve account (DSRA)",
+    "lockup": "Distribution lock-up",
+    "glue_cash": "Claims on cash",
+    "cash_waterfall": "Cash waterfall",
+    "cash_sweep_percent": "Cash sweep",
+    "glue_dist": "Cash available for distribution",
+    "distribution_waterfall": "Distribution waterfall: hurdle and promote",
+    "glue_book": "Book entries for the statements",
+    "three_statements": "Financial statements",
+    "glue_ret": "Project and equity cash flows",
+    "returns": "Returns: IRR, NPV and payback",
+    "fx_conversion": "Local-currency conversion",
+    "vat_account": "VAT account",
+}
+
+
 def steps(with_scenarios: bool = True) -> list[Step]:
     """`with_scenarios=False` is the model the scenarios are run on: the drivers read their base inputs directly."""
+    return [replace(st, title=TITLES.get(st.module.name)) for st in _steps(with_scenarios)]
+
+
+def _steps(with_scenarios: bool) -> list[Step]:
     OPEX, PRICE, VOLUME = (
         ("glue_drivers.opex_live", "glue_drivers.price_live", "glue_drivers.volume_live")
         if with_scenarios
