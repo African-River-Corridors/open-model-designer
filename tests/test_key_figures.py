@@ -56,6 +56,13 @@ def test_each_figure_is_a_formula_that_reads_its_row(built):
     assert got["Closing debt, last"] == pytest.approx(exp["debt_closing"][-1])
 
 
+def test_minifs_is_written_so_excel_knows_it(built):
+    _comp, path = built
+    ws = openpyxl.load_workbook(path)["Key figures"]
+    formulas = [c.value for c in ws["C"] if isinstance(c.value, str) and "MINIFS" in c.value]
+    assert formulas and all(f.startswith("=_xlfn.MINIFS(") for f in formulas)
+
+
 def test_the_figures_follow_an_input(built, tmp_path):
     comp, path = built
     wb = openpyxl.load_workbook(path)

@@ -62,7 +62,9 @@ def figure_formula(calcs, key: str, how, cols: Sequence[str]) -> tuple[str, str]
             raise KeyFigureError(f"key figure {key!r}: flag {flag!r} is not a Calcs row")
         fr = rows[flag]
         frng = f"{sheet}!${cols[0]}${fr}:${cols[-1]}${fr}"
-        name = {"min_where": "MINIFS", "max_where": "MAXIFS", "sum_where": "SUMIFS"}[fn]
+        # MINIFS and MAXIFS came after Excel 2007: the file must name them with the _xlfn. prefix, or Excel and
+        # LibreOffice show #NAME?. SUMIFS needs none.
+        name = {"min_where": "_xlfn.MINIFS", "max_where": "_xlfn.MAXIFS", "sum_where": "SUMIFS"}[fn]
         words = {"min_where": "lowest", "max_where": "highest", "sum_where": "sum"}[fn]
         return f"={name}({rng},{frng},1)", f"{words} where {flag} is 1"
     raise KeyFigureError(f"key figure {key!r}: unknown reading {how!r}")
