@@ -10,6 +10,7 @@ from omd import acceptance, template
 from omd.harness._eval import evaluate_cells
 from omd.harness.audit_fast import audit_fast
 from omd.harness.audit_inputs import audit_inputs
+from omd.harness.audit_offsheet import audit_offsheet
 from omd.harness.readchecks import read_zero_checks
 from omd.templates import project_finance as pf
 
@@ -209,3 +210,10 @@ def test_the_scenario_check_reads_red_when_the_live_model_is_not_the_selected_sc
     )
     comp = pf.build(ext)
     assert read_zero_checks(saved(comp), "Summary", min_rows=30, out=lambda *_: None) >= 1
+
+
+def test_gate_no_calculation_on_calcs_reads_another_sheet(built):
+    """Every input is mirrored at the top of Calcs, and only the mirror reads the Inputs and Feed sheets."""
+    _ext, comp = built
+    assert len(comp.mirror_rows) == len(comp.ext_cells)
+    assert audit_offsheet(saved(comp), comp.calcs.ws.title, comp.mirror_rows.values()) == []
