@@ -383,6 +383,22 @@ def scenario_points(ext: dict, selector: int = 1) -> dict:
     )  # fmt: skip
 
 
+#: the cover's basis facts; each figure is a live formula over its input, so the cover follows the inputs
+COVER_FACTS = [
+    ("Structure", "One project company. Construction, then operations; every module's rows are on Calcs."),
+    ("Funding", "Debt funds {debt_share:0%} of a capital cost of {total_capex:#,##0}; equity funds the rest. "
+                "Interest during construction accrues at {idc_rate:0.0%} a period and is capitalised."),
+    ("Senior debt", "Repaid in equal instalments over the repayment periods, at {term_interest_rate:0.0%} a period. "
+                    "A reserve holds the next period's service; {sweep_percent:0%} of spare cash sizes a sweep."),
+    ("Tax", "Tax at {tax_rate:0%} of taxable profit, with a minimum tax; losses carry forward {loss_life:0} periods."),
+    ("Distributions", "Locked up below a DSCR of {lockup_dscr:0.00}x. Investors take cash to a {hurdle_rate:0.0%} "
+                      "hurdle, then the sponsor takes a {promote_share:0%} promote."),
+    ("Returns", "Project and equity IRR, and NPV at {discount_rate:0.0%} (project) and "
+                "{equity_discount_rate:0.0%} (equity)."),
+    ("Checks", "Every check on the Summary sheet reads zero when the model is right."),
+]  # fmt: skip
+
+
 def build(ext: dict | None = None) -> Composed:
     ext = external() if ext is None else ext
 
@@ -423,7 +439,7 @@ def build(ext: dict | None = None) -> Composed:
         tiers = ("operating_costs", "senior_service", "reserve_top_up", "sub_service")
         return "+".join(f"ABS({sheet}!{col}{rows[f'cash_waterfall.unpaid_{t}']})" for t in tiers)
 
-    return compose(
+    comp = compose(
         steps(), ext, "Project finance (single SPV)",
         link_checks=[
             ("Check - term debt opens at the construction debt left at the end of construction",
@@ -437,3 +453,9 @@ def build(ext: dict | None = None) -> Composed:
             ("Check - the cash waterfall pays every claim (the statements assume it does)", every_claim_is_paid),
         ],
     )  # fmt: skip
+    comp.wb.cover(
+        subtitle="A starting model composed from the OMD module library",
+        status="Illustrative inputs: a template to build a project on, not a project.",
+        facts=COVER_FACTS,
+    )
+    return comp

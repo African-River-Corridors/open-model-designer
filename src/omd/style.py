@@ -62,6 +62,11 @@ class StyleProfile:
     #: False writes it as bold accent text with a rule, like a section header
     section_banner: bool = True
     banner_text: str = "FFFFFF"
+    #: the cover sheet: the page colour (None = `accent`), the title, the fact labels and the fact text
+    cover_ground: str | None = None
+    cover_title: str = "FFFFFF"
+    cover_label: str = "AEB8CC"
+    cover_text: str = "E6E9EF"
 
     def __post_init__(self) -> None:
         if self.negative not in ("brackets", "minus"):
@@ -242,9 +247,15 @@ def get_profile(style: str | StyleProfile | None) -> StyleProfile:
 
 
 def audit_style(
-    path: str, profile: StyleProfile = DEFAULT, *, inputs_sheet: str = "Inputs"
+    path: str,
+    profile: StyleProfile = DEFAULT,
+    *,
+    inputs_sheet: str = "Inputs",
+    cover_sheets: tuple[str, ...] = ("Cover",),
 ) -> list[str]:
     """Check a built workbook against a profile. Returns one line per breach (empty = clean).
+
+    A cover sheet (`cover_sheets`) is a painted page, not a table, and is not audited.
 
     * only hard-coded input cells (value column of the inputs sheet) carry the input shading, and only a chapter bar
       (a fill in the accent colour, off the inputs sheet) carries any other fill;
@@ -258,6 +269,8 @@ def audit_style(
     want_fill = (profile.input_fill or "").upper()
     bar_fill = profile.accent.upper() if profile.section_banner else None
     for ws in wb.worksheets:
+        if ws.title in cover_sheets:
+            continue
         if bool(ws.sheet_view.showGridLines) != profile.gridlines:
             problems.append(
                 f"{ws.title}: gridlines {'on' if ws.sheet_view.showGridLines else 'off'}"
