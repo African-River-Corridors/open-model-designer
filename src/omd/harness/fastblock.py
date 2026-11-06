@@ -62,8 +62,11 @@ class BlockError(AssertionError):
 class Block:
     """One FAST 2.02-01 calculation block on a `Calcs` sheet."""
 
-    def __init__(self, calcs, title: str, *, registry: dict):
+    def __init__(self, calcs, title: str, *, registry: dict, scope: str | None = None):
         self.c = calcs
+        # `scope` namespaces the driver node of a row written without a `key` (for example by a module's name), so
+        # two instances of one module, whose blocks share titles, never claim the same node.
+        self.scope = scope
         self.wb = calcs.workbook
         self.cols = list(self.wb.period_cols)
         self.n = len(self.cols)
@@ -233,7 +236,7 @@ class Block:
         # the node is scoped to the block, which is enough to build the graph but not enough to
         # catch a re-derivation across blocks. Mandatory `key` is the end state.
         TREE.declare(
-            key or f"{self.title}::{name}",
+            key or f"{self._node_prefix}::{name}",
             label=label.strip(),
             unit="",
             row=_rr,
@@ -281,7 +284,7 @@ class Block:
         )
         _rr = self._write(name, label, per_col, vals, fmt, kind="calc", key=key, bold=True)
         TREE.declare(
-            key or f"{self.title}::{name}",
+            key or f"{self._node_prefix}::{name}",
             label=label.strip(),
             unit="",
             row=_rr,
@@ -291,6 +294,10 @@ class Block:
         return _rr
 
     # -- internals -----------------------------------------------------------------------
+    @property
+    def _node_prefix(self) -> str:
+        return self.title if self.scope is None else f"{self.scope}/{self.title}"
+
     def _evaluate(self, expr: str):
         """Mirror the expression in Python so verify has something to assert against.
 
@@ -318,6 +325,8 @@ class Block:
     def _write(self, name, label, per_col, values, fmt, *, kind, key=None, bold=False):
         if name in self.local:
             raise BlockError(f"{self.title!r}: {name!r} is already a row in this block")
+        # The row key stays `_<title[:18]>_<name>` even in a scope: released modules rebuild it by that pattern to
+        # find their own rows while they write their checks, which they do straight after their build.
         rowkey = key or f"_{self.title[:18]}_{name}"
         if key and key in self.reg:
             raise BlockError(

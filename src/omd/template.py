@@ -22,6 +22,7 @@ from .harness import fastblock
 from .harness._eval import evaluate_cells
 from .module import BuildContext, Module
 from .sheet.workbook import Workbook
+from .style import StyleProfile
 
 N_PERIODS = acceptance.N_PERIODS
 
@@ -73,16 +74,38 @@ def _inputs_of(st: Step, external: dict, out: dict) -> dict:
 
 
 def compose(
-    steps: list[Step], external: dict, title: str = "Template", *, link_checks=()
+    steps: list[Step],
+    external: dict,
+    title: str = "Template",
+    *,
+    link_checks=(),
+    periods: list | None = None,
+    style: str | StyleProfile | None = None,
 ) -> Composed:
     """`link_checks`: (label, formula(comp, col)) pairs, each a check row on Calcs that joins modules the ports cannot
-    (for example a scalar that must equal the last value of a series). Each reads 0 when it holds."""
+    (for example a scalar that must equal the last value of a series). Each reads 0 when it holds.
+
+    `periods`: the period labels, one per column; their number is the model's horizon. The default is
+    `acceptance.N_PERIODS` periods labelled P1, P2, ... Every series input must then have one value per period.
+    `style`: a style profile or the name of a registered one; the default is `omd.style.DEFAULT`."""
     names = [s.module.name for s in steps]
-    assert len(set(names)) == len(names), "a module may appear once in a template"
+    assert len(set(names)) == len(names), "a module name may appear once in a template"
+    labels = list(periods) if periods is not None else [f"P{i + 1}" for i in range(N_PERIODS)]
+    if not labels:
+        raise ValueError("compose needs at least one period")
+    n = len(labels)
+    for st in steps:
+        for p in st.module.inputs:
+            src = st.wiring[p.name]
+            if p.kind == "series" and src.startswith("ext:"):
+                v = external[src[4:]]
+                if len(v) != n:
+                    raise ValueError(
+                        f"series input {src[4:]!r} has {len(v)} values; the model has {n} periods"
+                    )
     fastblock.reset()
-    n = N_PERIODS
     expected = chained_oracle(steps, external)
-    wb = Workbook(title, [f"P{i + 1}" for i in range(n)], opening=True)
+    wb = Workbook(title, labels, opening=True, style=style)
 
     ext_series: dict[str, str] = {}
     ext_scalar: dict[str, str] = {}

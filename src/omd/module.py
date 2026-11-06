@@ -95,4 +95,4 @@ class BuildContext:
     def block(self, title: str):
         from .harness.fastblock import Block
 
-        return Block(self.calcs, title, registry=self.registry)
+        return Block(self.calcs, title, registry=self.registry, scope=self.module.name)
