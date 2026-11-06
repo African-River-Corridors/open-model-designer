@@ -364,6 +364,15 @@ def external(**overrides) -> dict:
     return ext
 
 
+#: the scenario module's inputs that the build computes by running the oracle once per point: results, not
+#: assumptions. They sit on the Stored sheet, guarded by a check that reads non-zero once any input changes.
+STORED_RESULTS = (
+    "base_result", "live_result",
+    *(f"scenario_result__{s}" for s in SCENARIO_NAMES),
+    *(f"result_{k}__{d}" for d in DRIVERS for k in ("down", "up")),
+)  # fmt: skip
+
+
 def scenario_points(ext: dict, selector: int = 1) -> dict:
     """The scenarios module's inputs: the model's oracle run once per scenario and per driver up and down, the result
     tracked being the equity NPV. The drivers are the unit price, the delivered volume and the operating cost."""
@@ -466,7 +475,7 @@ def build(ext: dict | None = None) -> Composed:
         return "+".join(f"ABS({sheet}!{col}{rows[f'cash_waterfall.unpaid_{t}']})" for t in tiers)
 
     comp = compose(
-        steps(), ext, "Project finance (single SPV)",
+        steps(), ext, "Project finance (single SPV)", stored=STORED_RESULTS,
         link_checks=[
             ("Check - term debt opens at the construction debt left at the end of construction",
              construction_debt_is_term_opening),

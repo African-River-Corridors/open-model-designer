@@ -50,6 +50,22 @@ pip install open-model-designer
 The distribution is `open-model-designer`; the package you import is `omd`. (The name `omd` on PyPI belongs
 to another project.) It is not on PyPI yet: until the first release, install from a clone with `uv sync`.
 
+## What a composed workbook holds
+
+`omd.template.compose` (and the project-finance template built on it) writes these sheets:
+
+- **Cover**: the model's name, status and basis facts. A fact that quotes an input is a formula over it.
+- **Key figures**: the headline numbers, each a live formula over a Calcs row.
+- **Inputs** and **Feed**: the assumptions (scalars and series). The only sheets where a number is typed.
+- **Stored**: results the build computed that cannot be live formulas (a scenario table), with a snapshot of the
+  inputs they came from. A check reads non-zero once any input changes: rebuild the model.
+- **Calcs**: a contents list, then every input linked once at the top, then one chapter per module, each with a
+  logic note and collapsible. Nothing below the inputs reads another sheet.
+- **Summary**: every check row; each reads zero when the model is right.
+
+The gates prove it: `audit_offsheet` (Calcs reads other sheets only in its inputs block) and `audit_hardcodes`
+(no typed number outside the input sheets).
+
 ## Run it
 
 ```bash

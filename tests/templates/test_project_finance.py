@@ -4,6 +4,7 @@ import os
 import tempfile
 from dataclasses import replace
 
+import openpyxl
 import pytest
 
 from omd import acceptance, template
@@ -223,7 +224,12 @@ def test_gate_no_calculation_on_calcs_reads_another_sheet(built):
 def test_gate_no_typed_number_outside_the_input_sheets(built):
     """Every output follows the inputs: the only typed numbers are on Inputs and Feed, bar declared module ones."""
     _ext, comp = built
-    assert audit_hardcodes(saved(comp), declared=pf.HARDCODES_DECLARED) == []
+    assert (
+        audit_hardcodes(
+            saved(comp), input_sheets=("Inputs", "Feed", "Stored"), declared=pf.HARDCODES_DECLARED
+        )
+        == []
+    )
 
 
 def test_the_key_figures_are_live_and_agree_with_the_oracle(built):
@@ -247,3 +253,19 @@ def test_the_key_figures_are_live_and_agree_with_the_oracle(built):
         sum(e["distribution_waterfall"]["investor_distribution"])
     )
     assert all(isinstance(v, float) for v in got.values()), got
+
+
+def test_a_change_to_an_unselected_scenario_is_caught_as_stale(built, tmp_path):
+    """The scenarios module reconciles the selected scenario only. A change to another scenario's multiplier leaves
+    that reconciliation at zero, so only the stored-results check can say the table is stale."""
+    ext, comp = built
+    path = saved(comp)
+    wb = openpyxl.load_workbook(path)
+    sheet, cell = comp.ext_cells["multiplier__price__downside"]
+    wb[sheet][cell] = ext["multiplier__price__downside"] * 0.5
+    moved = str(tmp_path / "moved.xlsx")
+    wb.save(moved)
+    lines = []
+    read_zero_checks(moved, "Summary", min_rows=30, out=lambda s: lines.append(s))
+    failing = [s for s in lines if s.lstrip().startswith("FAIL")]
+    assert failing and all("Stored results" in s for s in failing)
