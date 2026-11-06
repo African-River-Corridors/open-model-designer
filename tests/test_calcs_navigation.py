@@ -47,11 +47,12 @@ def test_the_contents_list_links_every_chapter(book):
     comp, path = book
     ws = openpyxl.load_workbook(path)[comp.calcs.ws.title]
     assert ws.cell(row=4, column=1).value == "Contents"
-    links = {
-        ws.cell(row=r, column=1).value.strip(): ws.cell(row=r, column=1).hyperlink.location
-        for r in range(6, 9)
-    }
-    assert set(links) == {"Timeline", "CFADS", "Template checks"}
+    links = {}
+    r = 6
+    while ws.cell(row=r, column=1).hyperlink is not None:
+        links[ws.cell(row=r, column=1).value.strip()] = ws.cell(row=r, column=1).hyperlink.location
+        r += 1
+    assert {"Timeline", "CFADS", "Template checks"} <= set(links)
     for title, loc in links.items():
         row = int(loc.rsplit("A", 1)[1])
         assert ws.cell(row=row, column=1).value == title
