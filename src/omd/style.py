@@ -58,6 +58,10 @@ class StyleProfile:
     total_below: str | None = "double"
     gridlines: bool = False
     font_name: str | None = None
+    #: a chapter header on Calcs (one per composed module) is a full-width bar in `accent` with text in `banner_text`;
+    #: False writes it as bold accent text with a rule, like a section header
+    section_banner: bool = True
+    banner_text: str = "FFFFFF"
 
     def __post_init__(self) -> None:
         if self.negative not in ("brackets", "minus"):
@@ -151,6 +155,27 @@ class StyleProfile:
     def section(self, cell, size=None) -> None:
         self.bold(cell, size=size, color=self.accent)
 
+    def rule_below(self, ws: Worksheet, row: int, last_col: int) -> None:
+        """A thin accent rule under a header row, across every column from A to `last_col`."""
+        for j in range(1, last_col + 1):
+            ws.cell(row=row, column=j).border = self.hdr_border
+
+    def chapter(self, ws: Worksheet, row: int, last_col: int, size=None) -> None:
+        """A chapter header row: a full-width bar in the accent colour, or (no banner) bold text with a rule."""
+        cell = ws.cell(row=row, column=1)
+        if not self.section_banner:
+            self.bold(cell, size=size, color=self.accent)
+            self.rule_below(ws, row, last_col)
+            return
+        fill = PatternFill("solid", fgColor=self.accent)
+        for j in range(1, last_col + 1):
+            ws.cell(row=row, column=j).fill = fill
+        self.bold(cell, size=size, color=self.banner_text)
+
+    def note(self, cell) -> None:
+        """A logic note: one line of italic, muted prose under a header."""
+        cell.font = self._font(italic=True, color=self.muted)
+
     def title(self, cell, size: int = 12) -> None:
         cell.font = self._font(bold=True, size=size, color=self.accent)
 
@@ -221,7 +246,8 @@ def audit_style(
 ) -> list[str]:
     """Check a built workbook against a profile. Returns one line per breach (empty = clean).
 
-    * only hard-coded input cells (value column of the inputs sheet) carry the input shading;
+    * only hard-coded input cells (value column of the inputs sheet) carry the input shading, and only a chapter bar
+      (a fill in the accent colour, off the inputs sheet) carries any other fill;
     * gridlines are as the profile says;
     * a grouped number format follows the profile's negative style.
     """
@@ -230,6 +256,7 @@ def audit_style(
     wb = openpyxl.load_workbook(path)
     problems: list[str] = []
     want_fill = (profile.input_fill or "").upper()
+    bar_fill = profile.accent.upper() if profile.section_banner else None
     for ws in wb.worksheets:
         if bool(ws.sheet_view.showGridLines) != profile.gridlines:
             problems.append(
@@ -242,7 +269,12 @@ def audit_style(
                     is_input = (
                         ws.title == inputs_sheet and c.column == 2 and color.endswith(want_fill)
                     )
-                    if not is_input:
+                    is_bar = (
+                        bar_fill is not None
+                        and ws.title != inputs_sheet
+                        and color.endswith(bar_fill)
+                    )
+                    if not (is_input or is_bar):
                         problems.append(f"{ws.title}!{c.coordinate}: shaded but not an input")
                 nf = c.number_format or ""
                 if "#,##0" in nf:

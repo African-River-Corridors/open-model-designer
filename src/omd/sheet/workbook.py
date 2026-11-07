@@ -108,7 +108,7 @@ class _Ctx:
 class Calcs:
     """The working sheet: one row per line, every cell a live formula shifted across periods."""
 
-    def __init__(self, wb: Workbook, ws: Worksheet, name: str):
+    def __init__(self, wb: Workbook, ws: Worksheet, name: str, *, reserve: int = 0):
         self._wb = wb
         self.ws = ws
         self.name = name
@@ -128,7 +128,13 @@ class Calcs:
             cell.value = label
             S.colhdr(cell)
         ws.column_dimensions["A"].width = 42
-        self._row = 4  # first content row (leave row 3 as a spacer / driver band)
+        # Freeze the labels and the period headers, so neither scrolls away on a long sheet.
+        ws.freeze_panes = f"{wb._all_cols[0]}3"
+        # `reserve` rows are held at the top for something written last, such as a contents list.
+        if reserve < 0:
+            raise ValueError("reserve needs >= 0 rows")
+        self.reserved = (4, 4 + reserve) if reserve else None
+        self._row = 4 + reserve  # first content row (row 3 is a spacer / driver band)
         self._timeline()
 
     def _timeline(self) -> None:
@@ -172,9 +178,34 @@ class Calcs:
         """The row that holds the period headers."""
         return self._HDR_ROW
 
+    @property
+    def last_col(self) -> int:
+        """The index of the last period column."""
+        return len(self._wb._all_cols) + 1
+
     # -- write a section header ---------------------------------------------------------------
-    def section(self, label: str) -> None:
+    def section(self, label: str, *, note: str | None = None) -> None:
+        """A section (block) header: bold accent text with a rule across the sheet, then an optional logic note."""
         self._wb.style.section(self.ws.cell(row=self._row, column=1, value=label))
+        self._wb.style.rule_below(self.ws, self._row, self.last_col)
+        self._row += 1
+        if note:
+            self.note(note)
+
+    def chapter(self, label: str, *, note: str | None = None) -> int:
+        """A chapter header: one per part of the sheet (a composed module, the inputs), as a full-width bar, then
+        an optional logic note. Returns the header's row."""
+        rr = self._row
+        self.ws.cell(row=rr, column=1, value=label)
+        self._wb.style.chapter(self.ws, rr, self.last_col, size=12)
+        self._row += 1
+        if note:
+            self.note(note)
+        return rr
+
+    def note(self, text: str) -> None:
+        """One line of prose saying what the rows below do: italic and muted, so it reads as a note."""
+        self._wb.style.note(self.ws.cell(row=self._row, column=1, value=text))
         self._row += 1
 
     # -- write a line -------------------------------------------------------------------------
@@ -457,9 +488,10 @@ class Workbook:
         return Table(ws, name, headers, first, last)
 
     # -- Calcs --------------------------------------------------------------------------------
-    def calcs(self, name: str = "Calcs") -> Calcs:
+    def calcs(self, name: str = "Calcs", *, reserve: int = 0) -> Calcs:
+        """The Calcs sheet. `reserve` holds that many rows at the top, above the timeline, to fill last."""
         ws = self._wb.create_sheet(name)
-        self._calcs = Calcs(self, ws, name)
+        self._calcs = Calcs(self, ws, name, reserve=reserve)
         return self._calcs
 
     # -- Statement (reviewer-facing presentation, links to Calcs) -----------------------------

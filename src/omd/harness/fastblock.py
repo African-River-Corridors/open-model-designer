@@ -62,7 +62,15 @@ class BlockError(AssertionError):
 class Block:
     """One FAST 2.02-01 calculation block on a `Calcs` sheet."""
 
-    def __init__(self, calcs, title: str, *, registry: dict, scope: str | None = None):
+    def __init__(
+        self,
+        calcs,
+        title: str,
+        *,
+        registry: dict,
+        scope: str | None = None,
+        note: str | None = None,
+    ):
         self.c = calcs
         # `scope` namespaces the driver node of a row written without a `key` (for example by a module's name), so
         # two instances of one module, whose blocks share titles, never claim the same node.
@@ -76,7 +84,10 @@ class Block:
         self.kinds: dict[str, str] = {}  # block-local name -> "link" | "calc"
         self.vals: dict[str, list[float]] = {}
         calcs.skip_rows()  # FAST readability: breathing room before a block header
-        calcs.section(title)
+        if note:
+            calcs.section(title, note=note)
+        else:
+            calcs.section(title)
 
     # -- ingredients ---------------------------------------------------------------------
     def link(self, name: str, source, label: str, *, values=None, fmt=F.NUM):
