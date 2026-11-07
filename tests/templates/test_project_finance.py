@@ -9,6 +9,7 @@ import pytest
 from omd import acceptance, template
 from omd.harness._eval import evaluate_cells
 from omd.harness.audit_fast import audit_fast
+from omd.harness.audit_hardcodes import audit_hardcodes
 from omd.harness.audit_inputs import audit_inputs
 from omd.harness.audit_offsheet import audit_offsheet
 from omd.harness.readchecks import read_zero_checks
@@ -217,3 +218,32 @@ def test_gate_no_calculation_on_calcs_reads_another_sheet(built):
     _ext, comp = built
     assert len(comp.mirror_rows) == len(comp.ext_cells)
     assert audit_offsheet(saved(comp), comp.calcs.ws.title, comp.mirror_rows.values()) == []
+
+
+def test_gate_no_typed_number_outside_the_input_sheets(built):
+    """Every output follows the inputs: the only typed numbers are on Inputs and Feed, bar declared module ones."""
+    _ext, comp = built
+    assert audit_hardcodes(saved(comp), declared=pf.HARDCODES_DECLARED) == []
+
+
+def test_the_key_figures_are_live_and_agree_with_the_oracle(built):
+    _ext, comp = built
+    path = saved(comp)
+    vals = evaluate_cells(path, ("Key figures",))
+    ws = comp.wb.sheet("Key figures")
+    got = {
+        ws.cell(row=r, column=2).value: vals.get(f"KEY FIGURES'!C{r}")
+        for r in range(6, ws.max_row + 1)
+        if isinstance(ws.cell(row=r, column=3).value, str)
+    }
+    e = comp.expected
+    flags = _ext["repayment_flag"]
+    assert got["Equity IRR"] == pytest.approx(e["returns"]["equity_xirr"][0])
+    assert got["Minimum DSCR, repayment periods"] == pytest.approx(
+        min(d for d, f in zip(e["cover_ratios"]["dscr"], flags) if f == 1)
+    )
+    assert got["Peak senior debt"] == pytest.approx(max(e["glue_book"]["senior_closing"]))
+    assert got["Distributions to investors"] == pytest.approx(
+        sum(e["distribution_waterfall"]["investor_distribution"])
+    )
+    assert all(isinstance(v, float) for v in got.values()), got

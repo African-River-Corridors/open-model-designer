@@ -399,6 +399,32 @@ COVER_FACTS = [
 ]  # fmt: skip
 
 
+_X = '0.00"x"'
+#: the headline figures; each is a live formula over a Calcs row, never a number from the oracle
+KEY_FIGURES = [
+    ("Returns", None),
+    ("Project IRR", "returns.project_xirr", "first", "0.0%"),
+    ("Equity IRR", "returns.equity_xirr", "first", "0.0%"),
+    ("Project NPV", "returns.project_npv", "first"),
+    ("Equity NPV", "returns.equity_npv", "first"),
+    ("Equity payback (period)", "returns.equity_payback_period", "first", "0"),
+    ("Debt", None),
+    ("Minimum DSCR, repayment periods", "cover_ratios.dscr", ("min_where", "input.repayment_flag"), _X),
+    ("Minimum LLCR, repayment periods", "cover_ratios.llcr", ("min_where", "input.repayment_flag"), _X),
+    ("Peak senior debt", "glue_book.senior_closing", "max"),
+    ("Capital and cash", None),
+    ("Capital cost, including capitalised interest", "idc.capital_additions_incl_idc", "sum"),
+    ("Equity contributed", "capex_funding.equity_contribution", "sum"),
+    ("Distributions to investors", "distribution_waterfall.investor_distribution", "sum"),
+    ("Sponsor promote", "distribution_waterfall.sponsor_promote", "sum"),
+]  # fmt: skip
+
+#: typed numbers a released module writes on purpose, so the hardcode audit reads them as declared, not as findings
+HARDCODES_DECLARED = {
+    "age in periods": "tax_losses: the opening age of each loss pool is its offset on the timeline, not an input",
+}
+
+
 def build(ext: dict | None = None) -> Composed:
     ext = external() if ext is None else ext
 
@@ -458,4 +484,5 @@ def build(ext: dict | None = None) -> Composed:
         status="Illustrative inputs: a template to build a project on, not a project.",
         facts=COVER_FACTS,
     )
+    comp.wb.key_figures("Key figures", KEY_FIGURES, index=1)
     return comp
