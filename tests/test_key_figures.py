@@ -81,11 +81,23 @@ def test_the_workbook_has_no_typed_output_and_the_audit_finds_one(built, tmp_pat
     wb["Key figures"]["C8"] = 1234.5
     bad = str(tmp_path / "bad.xlsx")
     wb.save(bad)
-    found = audit_hardcodes(bad, label_col=2)
-    assert found and "Key figures!C8" in found[0]
+    found = audit_hardcodes(bad)
+    assert found and "Key figures!C8" in found[0] and "Interest, total" in found[0]
     seen = []
-    assert audit_hardcodes(bad, label_col=2, declared={"Interest": "a test"}, out=seen.append) == []
+    assert audit_hardcodes(bad, declared={"Interest": "a test"}, out=seen.append) == []
     assert seen and "a test" in seen[0]
+
+
+def test_a_number_pasted_as_a_formula_is_found_too(built, tmp_path):
+    _comp, path = built
+    wb = openpyxl.load_workbook(path)
+    wb["Key figures"]["C8"] = "=0.153"
+    wb["Key figures"]["C9"] = '=TEXT(1,"0")&"x"'
+    bad = str(tmp_path / "bad.xlsx")
+    wb.save(bad)
+    found = audit_hardcodes(bad)
+    assert sorted(f.split(" holds")[0] for f in found) == ["Key figures!C8", "Key figures!C9"]
+    assert all("reads no cell" in f for f in found)
 
 
 def test_a_figure_must_name_a_real_row(built):
