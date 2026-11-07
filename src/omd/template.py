@@ -230,10 +230,10 @@ def _contents(calcs, chapters: list[list]) -> None:
         cell.hyperlink = Hyperlink(ref=cell.coordinate, location=f"'{ws.title}'!A{hdr}")
         cell.style = "Hyperlink"
     ws.sheet_properties.outlinePr.summaryBelow = False
-    for title, hdr, last in chapters:
-        body = hdr + (
-            2 if title != "Timeline" else 1
-        )  # leave the header and its logic note visible
+    for _title, hdr, last in chapters:
+        # leave the header visible, and its logic note if it has one (a note is the italic line under the header)
+        note = ws.cell(row=hdr + 1, column=1)
+        body = hdr + (2 if note.value and note.font is not None and note.font.i else 1)
         for r in range(body, last + 1):
             ws.row_dimensions[r].outlineLevel = 1
 

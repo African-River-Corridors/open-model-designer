@@ -97,3 +97,15 @@ def test_a_bar_on_the_inputs_sheet_is_still_a_style_breach(tmp_path):
     bad = str(tmp_path / "bad.xlsx")
     wb.save(bad)
     assert any("Inputs!D9" in p for p in audit_style(bad))
+
+
+def test_a_module_with_no_logic_note_groups_from_the_row_under_its_bar():
+    import dataclasses
+
+    bare = dataclasses.replace(cfads.MODULE, scope={"in": [], "out": []})
+    step = Step(bare, {p.name: f"ext:{p.name}" for p in bare.inputs}, title="CFADS")
+    comp = template.compose([step], INPUTS, "No note")
+    ws = comp.calcs.ws
+    hdr = _find(ws, "CFADS")
+    assert ws.row_dimensions[hdr].outlineLevel == 0
+    assert ws.row_dimensions[hdr + 1].outlineLevel == 1
