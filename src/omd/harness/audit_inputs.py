@@ -72,6 +72,7 @@ def audit_inputs(
     gate_min_rows: int = 20,
     rel_tol: float = 1e-9,
     shard: tuple[int, int] | None = None,
+    ignore_rows: Collection[int] = (),
     out=print,
 ) -> InputsAudit:
     """Bump every input in `inputs_sheet` and count the cells that move on `watched_sheets`.
@@ -82,6 +83,9 @@ def audit_inputs(
     `gate_label` is the start of a label of a known-live input (the sanity gate). `declared` is
     the set of label prefixes that may legitimately move nothing; any other inert input is a
     defect (`InputsAudit.undeclared`).
+
+    `ignore_rows` are rows of the watched sheets that do not count as moved: a block of mirrored inputs (each row a
+    copy of one input) moves whenever its input does, and would make every input look live.
     """
     wbk = openpyxl.load_workbook(src)
     if inputs_sheet not in wbk.sheetnames:
@@ -115,6 +119,7 @@ def audit_inputs(
             os.remove(path)
 
     base = scalars(src)
+    skip = set(ignore_rows)
 
     def moved(got: dict[str, float]) -> collections.Counter:
         mv: collections.Counter = collections.Counter()
@@ -124,7 +129,7 @@ def audit_inputs(
                 continue
             if abs(g - b) / max(abs(b), abs(g), 1e-6) > rel_tol:
                 m = cell_re.match(k)
-                if m:
+                if m and int(m.group(3)) not in skip:
                     mv[(m.group(1), int(m.group(3)))] += 1
         return mv
 

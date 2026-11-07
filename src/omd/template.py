@@ -130,17 +130,51 @@ def compose(
         else {}
     )
     sources_ext = dict(refs)
+    feed_rows: dict[str, int] = {}
     if ext_series:
         feed = wb.add_sheet("Feed")
         for r, k in enumerate(ext_series, start=2):
+            feed_rows[k] = r
             feed.cell(row=r, column=1, value=k)
             for i, v in enumerate(external[k]):
                 feed.cell(row=r, column=3 + i, value=float(v))
             sources_ext[k] = f"Feed!{{col}}{r}"
     # The contents list sits at the top of Calcs and is written last: one line per chapter, plus a heading and a hint.
-    chapters_planned = 1 + len(steps) + (1 if link_checks else 0)
+    mirrored = list(ext_scalar) + list(ext_series)
+    chapters_planned = 1 + (1 if mirrored else 0) + len(steps) + (1 if link_checks else 0)
     calcs = wb.calcs(reserve=chapters_planned + 3)
     chapters: list[list] = [["Timeline", calcs.reserved[1], None]]  # [title, header row, last row]
+
+    # Every external input, brought onto Calcs once, before any module: the modules read these rows, so no
+    # calculation on Calcs reads another sheet and a reader traces every number without leaving the sheet.
+    mirror_rows: dict[str, int] = {}
+    if mirrored:
+        calcs.skip_rows()
+        hdr = calcs.chapter(
+            "Inputs",
+            note="Every input the model uses, linked from the Inputs and Feed sheets. Edit inputs there, not here; "
+            "nothing else on this sheet reads another sheet.",
+        )
+        chapters.append(["Inputs", hdr, None])
+        units = {**ext_scalar, **ext_series}
+        for k in mirrored:
+            src = sources_ext[k]
+            vals = [float(x) for x in external[k]] if k in ext_series else [float(external[k])] * n
+            calcs.row(
+                f"input.{k}",
+                f"    {k} ({units[k]})",
+                (lambda x, src=src: "=" + src.format(col=x.col))
+                if k in ext_series
+                else (lambda x, src=src: f"={src}"),
+                values=vals,
+            )
+            row = calcs.rows()[f"input.{k}"]
+            mirror_rows[k] = row
+            sources_ext[k] = (
+                f"{calcs.ws.title}!{{col}}{row}"
+                if k in ext_series
+                else f"{calcs.ws.title}!${wb.period_cols[0]}${row}"
+            )
 
     ctxs: dict[str, BuildContext] = {}
     specs: dict[str, dict[str, str]] = {}
@@ -169,13 +203,10 @@ def compose(
         ctxs[m.name] = ctx
 
     comp = Composed(wb, calcs, steps, ctxs, specs, spans, expected)
+    comp.mirror_rows = mirror_rows
     comp.ext_cells = {
         **{k: ("Inputs", ref.split("!", 1)[1].replace("$", "")) for k, ref in refs.items()},
-        **{
-            k: ("Feed", int(ref.rsplit("}", 1)[1]))
-            for k, ref in sources_ext.items()
-            if k in ext_series
-        },
+        **{k: ("Feed", feed_rows[k]) for k in ext_series},
     }
     if link_checks:
         calcs.skip_rows()
