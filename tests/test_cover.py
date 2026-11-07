@@ -84,3 +84,15 @@ def test_a_cover_image_is_placed_left_of_the_text(tmp_path):
     ws = wb.cover(image=img, facts=[("Basis", "Text.")])
     assert len(ws._images) == 1
     assert ws["D2"].value == "Toll road"
+
+
+def test_a_quote_at_a_chunk_edge_survives(tmp_path):
+    wb = _book()
+    text = "a" * 249 + '" b {capex:0}'
+    ws = wb.cover(facts=[("Edge", text), ("Eq", "= plain text")])
+    path = str(tmp_path / "q.xlsx")
+    wb.save(path)
+    cells = [c for c in ws["C"] if isinstance(c.value, str) and c.value.startswith("=")]
+    vals = evaluate_cells(path, ("Cover",))
+    got = [vals[f"COVER'!{c.coordinate}"] for c in cells]
+    assert got == ["a" * 249 + '" b 1250', "= plain text"]

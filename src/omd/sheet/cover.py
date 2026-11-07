@@ -8,6 +8,8 @@ input, so the cover cannot go stale when the input changes::
 
 `{name}` is an input name (as given to `Workbook.inputs`); the part after the colon is an Excel number format for
 `TEXT()`, `General` when left out. A fact with no braces is plain text. Literal braces are written `{{` and `}}`.
+The format is passed to Excel's `TEXT()` as written, and `TEXT()` formats follow the reader's locale: `0.0%` reads
+as intended in an English Excel, and a German one expects `0,0%`.
 
 Colours come from the style profile: `cover_ground` (the page), `cover_title`, `cover_label` and `cover_text`.
 """
@@ -33,8 +35,9 @@ class CoverError(ValueError):
 
 
 def _literal(text: str) -> list[str]:
-    text = text.replace('"', '""')
-    return [f'"{text[i : i + _CHUNK]}"' for i in range(0, len(text), _CHUNK)] if text else []
+    """Excel string literals for `text`: split first, then double the quotes, so a doubled pair is never cut."""
+    chunks = [text[i : i + _CHUNK // 2] for i in range(0, len(text), _CHUNK // 2)]
+    return ['"' + c.replace('"', '""') + '"' for c in chunks]
 
 
 def live_text(template: str, refs: dict[str, str]) -> str:
@@ -53,7 +56,9 @@ def live_text(template: str, refs: dict[str, str]) -> str:
         parts.append(f'TEXT({refs[name]},"{fmt}")')
         quoted = True
     if not quoted:
-        return template.replace("{{", "{").replace("}}", "}")
+        text = template.replace("{{", "{").replace("}}", "}")
+        # a plain fact that starts with "=" would be read as a formula: write it as a formula that returns the text
+        return "=" + "&".join(_literal(text)) if text.startswith("=") else text
     return "=" + "&".join(parts)
 
 
