@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+from collections.abc import Collection
 from dataclasses import dataclass, field
 
 import openpyxl
@@ -91,13 +92,18 @@ def compose(
     link_checks=(),
     periods: list | None = None,
     style: str | StyleProfile | None = None,
+    stored: Collection[str] = (),
 ) -> Composed:
     """`link_checks`: (label, formula(comp, col)) pairs, each a check row on Calcs that joins modules the ports cannot
     (for example a scalar that must equal the last value of a series). Each reads 0 when it holds.
 
     `periods`: the period labels, one per column; their number is the model's horizon. The default is
     `acceptance.N_PERIODS` periods labelled P1, P2, ... Every series input must then have one value per period.
-    `style`: a style profile or the name of a registered one; the default is `omd.style.DEFAULT`."""
+    `style`: a style profile or the name of a registered one; the default is `omd.style.DEFAULT`.
+    `stored`: names of scalar external inputs that are results the build computed (for example a scenario table run
+    through the oracle once per point), not assumptions. They go on a Stored sheet, with a snapshot of every other
+    input as it was when they were computed, and a Summary check reads non-zero once any input differs from its
+    snapshot: the stored results are then stale, and the model must be rebuilt."""
     names = [s.module.name for s in steps]
     assert len(set(names)) == len(names), "a module name may appear once in a template"
     labels = list(periods) if periods is not None else [f"P{i + 1}" for i in range(N_PERIODS)]
@@ -124,10 +130,13 @@ def compose(
             src = st.wiring[p.name]
             if src.startswith("ext:"):
                 (ext_series if p.kind == "series" else ext_scalar)[src[4:]] = p.unit
+    stored = list(stored)
+    bad = [k for k in stored if k not in ext_scalar]
+    if bad:
+        raise ValueError(f"stored results must be scalar external inputs of the template: {bad}")
+    assumed = [k for k in ext_scalar if k not in stored]
     refs = (
-        wb.inputs("Scalar inputs", {k: (k, float(external[k])) for k in ext_scalar})
-        if ext_scalar
-        else {}
+        wb.inputs("Scalar inputs", {k: (k, float(external[k])) for k in assumed}) if assumed else {}
     )
     sources_ext = dict(refs)
     feed_rows: dict[str, int] = {}
@@ -139,6 +148,9 @@ def compose(
             for i, v in enumerate(external[k]):
                 feed.cell(row=r, column=3 + i, value=float(v))
             sources_ext[k] = f"Feed!{{col}}{r}"
+    stored_refs = _stored_sheet(wb, stored, external, refs, ext_series, feed_rows) if stored else {}
+    sources_ext.update(stored_refs)
+
     # The contents list sits at the top of Calcs and is written last: one line per chapter, plus a heading and a hint.
     mirrored = list(ext_scalar) + list(ext_series)
     chapters_planned = 1 + (1 if mirrored else 0) + len(steps) + (1 if link_checks else 0)
@@ -206,6 +218,7 @@ def compose(
     comp.mirror_rows = mirror_rows
     comp.ext_cells = {
         **{k: ("Inputs", ref.split("!", 1)[1].replace("$", "")) for k, ref in refs.items()},
+        **{k: (STORED, ref.split("!", 1)[1].replace("$", "")) for k, ref in stored_refs.items()},
         **{k: ("Feed", feed_rows[k]) for k in ext_series},
     }
     if link_checks:
@@ -234,7 +247,101 @@ def compose(
         }
     _contents(calcs, chapters)
     _summary(comp)
+    if stored:
+        _stale_check(comp)
     return comp
+
+
+STORED = "Stored"
+_STALE_LABEL = (
+    "Stored results: inputs changed since the build computed them, rebuild the model (count)"
+)
+
+
+def _stored_sheet(wb, stored, external, refs, ext_series, feed_rows) -> dict[str, str]:
+    """The Stored sheet. Column B flags a change (1) on every row; the totals count them.
+
+    * Stored results: C is the value the model reads, D the same value as built. B reads 1 if C was edited.
+    * Inputs as built: C onwards hold each input's value (a series across the period columns) as the stored results
+      saw it. B reads 1 once the live input differs. Values are compared cell to cell, never as a number written
+      inside a formula, which Excel would round to 15 significant digits.
+
+    Returns {stored name: cell ref}."""
+    S = wb.style
+    ws = wb.add_sheet(STORED)
+    S.white(ws)
+    S.title(
+        ws.cell(row=1, column=1, value="Stored results: computed by the build, not assumptions")
+    )
+    S.subtitle(
+        ws.cell(
+            row=2,
+            column=1,
+            value="Do not edit. They hold only while every input has the value it had at the build; the Summary "
+            "check reads non-zero once one changes, and the model must be rebuilt.",
+        )
+    )
+    for j, h in enumerate(("Changed (1/0)", "Value", "As built"), start=2):
+        S.colhdr(ws.cell(row=4, column=j, value=h))
+    S.section(ws.cell(row=5, column=1, value="Stored results"))
+    out: dict[str, str] = {}
+    r = 6
+    first = r
+    for k in stored:
+        v = float(external[k])
+        ws.cell(row=r, column=1, value=k)
+        ws.cell(row=r, column=2, value=f"=(C{r}<>D{r})*1")
+        for col in (3, 4):
+            ws.cell(row=r, column=col, value=v).number_format = S.fmt_for(v)
+        out[k] = f"{STORED}!$C${r}"
+        r += 1
+    r += 1
+    S.section(
+        ws.cell(
+            row=r,
+            column=1,
+            value="Inputs as the stored results saw them (series across the periods)",
+        )
+    )
+    r += 1
+    for k, ref in refs.items():
+        v = float(external[k])
+        ws.cell(row=r, column=1, value=k)
+        ws.cell(row=r, column=2, value=f"=({ref}<>C{r})*1")
+        ws.cell(row=r, column=3, value=v).number_format = S.fmt_for(v)
+        r += 1
+    for k in ext_series:
+        ws.cell(row=r, column=1, value=k)
+        terms = []
+        for i, v in enumerate(external[k]):
+            col = wb.period_cols[i]
+            ws[f"{col}{r}"] = float(v)
+            terms.append(f"(Feed!{col}{feed_rows[k]}<>{col}{r})")
+        ws.cell(row=r, column=2, value="=((" + "+".join(terms) + ")>0)*1")
+        r += 1
+    last = r - 1
+    r += 1
+    S.bold(
+        ws.cell(
+            row=r,
+            column=1,
+            value="Stored results edited, or inputs changed, since the build (count)",
+        )
+    )
+    ws.cell(row=r, column=2, value=f"=SUM(B{first}:B{last})")
+    wb._stale_cell = f"{STORED}!$B${r}"
+    ws.column_dimensions["A"].width = 60
+    ws.freeze_panes = "B5"
+    return out
+
+
+def _stale_check(comp: Composed) -> None:
+    """A Summary row that reads the Stored sheet's count of changed inputs in every period."""
+    sheet = comp.wb.sheet("Summary")
+    r = sheet.max_row + 1
+    sheet.cell(row=r, column=2, value=_STALE_LABEL)
+    for i, _col in enumerate(comp.wb.period_cols):
+        sheet.cell(row=r, column=3 + i, value=f"={comp.wb._stale_cell}")
 
 
 def _contents(calcs, chapters: list[list]) -> None:
@@ -394,8 +501,8 @@ def inputs_drive_outputs(
                 new = bump(float(external[name]))
             moved = {**external, name: new}
             w = openpyxl.load_workbook(path)
-            if sheet == "Inputs":
-                w["Inputs"][where] = moved[name]
+            if sheet != "Feed":
+                w[sheet][where] = moved[name]
             else:
                 for i, v in enumerate(moved[name]):
                     w["Feed"].cell(row=where, column=3 + i, value=float(v))
