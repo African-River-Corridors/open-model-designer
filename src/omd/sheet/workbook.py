@@ -334,6 +334,9 @@ class Workbook:
         self._inputs_ws: Worksheet | None = None
         self._input_row = 4
         self._calcs: Calcs | None = None
+        self._painted: set[str] = (
+            set()
+        )  # sheets laid out by hand (a cover): autosize leaves them alone
 
     # -- columns ------------------------------------------------------------------------------
     @property
@@ -563,10 +566,19 @@ class Workbook:
                 row += 1
         ws.freeze_panes = "C6"
 
+    # -- Cover -------------------------------------------------------------------------------
+    def cover(self, *, title: str | None = None, **kw) -> Worksheet:
+        """A cover sheet, first in the book: title, status and basis facts, some of them live over the inputs.
+        See :func:`omd.sheet.cover.cover` for the arguments."""
+        from .cover import cover
+
+        return cover(self, title=title or self.title, **kw)
+
     # -- finalise -----------------------------------------------------------------------------
     def autosize(self) -> None:
         for ws in self._wb.worksheets:
-            F.autosize(ws)
+            if ws.title not in self._painted:
+                F.autosize(ws)
 
     def save(self, path: str) -> None:
         self._wb.properties.created = _EPOCH
