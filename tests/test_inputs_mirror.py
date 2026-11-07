@@ -86,3 +86,42 @@ def test_the_audit_catches_a_mirrored_input_nothing_reads(built, tmp_path):
     wb.save(bad)
     found = audit_offsheet(bad, comp.calcs.ws.title, comp.mirror_rows.values())
     assert any("interest_rate" in f and "read by nothing" in f for f in found)
+
+
+def test_a_mirror_row_does_not_make_an_inert_input_look_live(built, tmp_path):
+    """The rate's mirror row moves when the rate moves. If every formula that reads the mirror ignores it, the rate
+    drives nothing, and the inert-input audit must say so: the mirror row itself does not count."""
+    from omd.harness.audit_inputs import audit_inputs
+
+    comp, path = built
+    wb = openpyxl.load_workbook(path)
+    ws = wb[comp.calcs.ws.title]
+    rr = comp.mirror_rows["interest_rate"]
+    ref = f"{comp.calcs.ws.title}!${comp.wb.period_cols[0]}${rr}"
+    for row in ws.iter_rows():
+        for c in row:
+            if c.row != rr and isinstance(c.value, str) and ref in c.value:
+                c.value = c.value.replace(ref, f"(0*{ref}+0.05)")
+    bad = str(tmp_path / "inert.xlsx")
+    wb.save(bad)
+    kw = dict(
+        inputs_sheet="Inputs", watched_sheets=("Calcs",), gate_label="opening_debt", gate_min_rows=1
+    )
+    fooled = audit_inputs(bad, out=lambda *_: None, **kw)
+    assert not fooled.inert  # without ignore_rows the mirror row alone makes the rate look live
+    audit = audit_inputs(bad, ignore_rows=comp.mirror_rows.values(), out=lambda *_: None, **kw)
+    assert [lb for _r, lb, _v in audit.inert] == ["interest_rate"]
+    clean = audit_inputs(path, ignore_rows=comp.mirror_rows.values(), out=lambda *_: None, **kw)
+    assert clean.inert == []
+
+
+def test_the_audit_catches_a_mirror_row_that_is_not_a_pure_link(built, tmp_path):
+    comp, path = built
+    wb = openpyxl.load_workbook(path)
+    ws = wb[comp.calcs.ws.title]
+    rr = comp.mirror_rows["interest_rate"]
+    ws[f"{comp.wb.period_cols[1]}{rr}"] = "=Inputs!$B$5*2"
+    bad = str(tmp_path / "notlink.xlsx")
+    wb.save(bad)
+    found = audit_offsheet(bad, comp.calcs.ws.title, comp.mirror_rows.values())
+    assert any("not a pure link" in f for f in found)

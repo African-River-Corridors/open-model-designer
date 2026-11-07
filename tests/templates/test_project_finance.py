@@ -123,7 +123,7 @@ def test_gate_inputs_audit_finds_no_inert_scalar_input(built, i):
     _ext, comp = built
     audit = audit_inputs(
         saved(comp), inputs_sheet="Inputs", watched_sheets=("Calcs",), gate_label="total_capex",
-        gate_min_rows=1, shard=(i, INPUT_SHARDS), out=lambda *_: None,
+        gate_min_rows=1, shard=(i, INPUT_SHARDS), ignore_rows=comp.mirror_rows.values(), out=lambda *_: None,
     )  # fmt: skip
     assert audit.ok and not audit.inert
 

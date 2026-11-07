@@ -4,6 +4,7 @@ A reader should trace any number on Calcs without leaving the sheet. So every in
 the top, and every calculation reads those rows. This audit says where that fails:
 
 * a formula outside the mirrored rows that names another sheet;
+* a mirrored row that is not a pure link to one cell (`=0.05` or `=Inputs!B5*2` would hide a number on Calcs);
 * a mirrored input that no other formula on Calcs reads. The mirror references every input, so without this a dead
   input would look used to a guard that only asks "is this input referenced?".
 """
@@ -28,6 +29,10 @@ REF = re.compile(
 )
 
 
+#: a mirrored row holds a link to one cell on another sheet, and nothing else
+PURE_LINK = re.compile(r"^=(?:'(?:[^']|'')+'|[A-Za-z_][\w.]*)!\$?[A-Z]{1,3}\$?\d+$")
+
+
 def _sheet(q: str | None, b: str | None) -> str | None:
     return q.replace("''", "'") if q else b
 
@@ -44,6 +49,10 @@ def audit_offsheet(path: str, calcs_sheet: str, mirror_rows: Collection[int]) ->
             if not (isinstance(v, str) and v.startswith("=")):
                 continue
             if c.row in mirror:
+                if not PURE_LINK.match(v):
+                    problems.append(
+                        f"{calcs_sheet}!{c.coordinate} is a mirrored input but not a pure link: {v[:70]}"
+                    )
                 continue
             others = {
                 (q or b).replace("''", "'")
