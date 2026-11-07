@@ -259,8 +259,14 @@ _STALE_LABEL = (
 
 
 def _stored_sheet(wb, stored, external, refs, ext_series, feed_rows) -> dict[str, str]:
-    """The Stored sheet: the stored results, then one row per input that reads 0 while the input still has the value
-    the results were computed from. Returns {stored name: cell ref}."""
+    """The Stored sheet. Column B flags a change (1) on every row; the totals count them.
+
+    * Stored results: C is the value the model reads, D the same value as built. B reads 1 if C was edited.
+    * Inputs as built: C onwards hold each input's value (a series across the period columns) as the stored results
+      saw it. B reads 1 once the live input differs. Values are compared cell to cell, never as a number written
+      inside a formula, which Excel would round to 15 significant digits.
+
+    Returns {stored name: cell ref}."""
     S = wb.style
     ws = wb.add_sheet(STORED)
     S.white(ws)
@@ -271,48 +277,61 @@ def _stored_sheet(wb, stored, external, refs, ext_series, feed_rows) -> dict[str
         ws.cell(
             row=2,
             column=1,
-            value="Do not edit. They hold only while every input has the value below; the Summary check reads "
-            "non-zero once one changes, and the model must be rebuilt.",
+            value="Do not edit. They hold only while every input has the value it had at the build; the Summary "
+            "check reads non-zero once one changes, and the model must be rebuilt.",
         )
     )
-    S.section(ws.cell(row=4, column=1, value="Stored results"))
+    for j, h in enumerate(("Changed (1/0)", "Value", "As built"), start=2):
+        S.colhdr(ws.cell(row=4, column=j, value=h))
+    S.section(ws.cell(row=5, column=1, value="Stored results"))
     out: dict[str, str] = {}
-    r = 5
+    r = 6
+    first = r
     for k in stored:
+        v = float(external[k])
         ws.cell(row=r, column=1, value=k)
-        c = ws.cell(row=r, column=2, value=float(external[k]))
-        c.number_format = S.fmt_for(float(external[k]))
-        out[k] = f"{STORED}!$B${r}"
+        ws.cell(row=r, column=2, value=f"=(C{r}<>D{r})*1")
+        for col in (3, 4):
+            ws.cell(row=r, column=col, value=v).number_format = S.fmt_for(v)
+        out[k] = f"{STORED}!$C${r}"
         r += 1
     r += 1
     S.section(
         ws.cell(
             row=r,
             column=1,
-            value="Inputs as the stored results saw them: each row reads 0 while it holds",
+            value="Inputs as the stored results saw them (series across the periods)",
         )
     )
     r += 1
-    first = r
     for k, ref in refs.items():
+        v = float(external[k])
         ws.cell(row=r, column=1, value=k)
-        ws.cell(row=r, column=2, value=f"=(ABS({ref}-({float(external[k])!r}))>0)*1")
+        ws.cell(row=r, column=2, value=f"=({ref}<>C{r})*1")
+        ws.cell(row=r, column=3, value=v).number_format = S.fmt_for(v)
         r += 1
     for k in ext_series:
-        terms = [
-            f"ABS(Feed!{wb.period_cols[i]}{feed_rows[k]}-({float(v)!r}))"
-            for i, v in enumerate(external[k])
-        ]
         ws.cell(row=r, column=1, value=k)
+        terms = []
+        for i, v in enumerate(external[k]):
+            col = wb.period_cols[i]
+            ws[f"{col}{r}"] = float(v)
+            terms.append(f"(Feed!{col}{feed_rows[k]}<>{col}{r})")
         ws.cell(row=r, column=2, value="=((" + "+".join(terms) + ")>0)*1")
         r += 1
     last = r - 1
     r += 1
-    S.bold(ws.cell(row=r, column=1, value="Inputs changed since the build (count)"))
-    ws.cell(row=r, column=2, value=f"=SUM(B{first}:B{last})" if last >= first else "=0")
+    S.bold(
+        ws.cell(
+            row=r,
+            column=1,
+            value="Stored results edited, or inputs changed, since the build (count)",
+        )
+    )
+    ws.cell(row=r, column=2, value=f"=SUM(B{first}:B{last})")
     wb._stale_cell = f"{STORED}!$B${r}"
     ws.column_dimensions["A"].width = 60
-    ws.column_dimensions["B"].width = 18
+    ws.freeze_panes = "B5"
     return out
 
 

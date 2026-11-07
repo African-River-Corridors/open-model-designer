@@ -35,16 +35,20 @@ def test_a_stored_result_is_on_its_own_sheet_and_read_through_the_mirror(built):
     comp, path = built
     ws = openpyxl.load_workbook(path)
     assert "Stored" in ws.sheetnames
-    assert comp.ext_cells["opening_debt"] == ("Stored", "B5")
+    assert comp.ext_cells["opening_debt"] == ("Stored", "C6")
     assert all(ws["Inputs"].cell(row=r, column=1).value != "opening_debt" for r in range(1, 30))
     first = comp.wb.period_cols[0]
-    assert ws["Calcs"][f"{first}{comp.mirror_rows['opening_debt']}"].value == "=Stored!$B$5"
+    assert ws["Calcs"][f"{first}{comp.mirror_rows['opening_debt']}"].value == "=Stored!$C$6"
 
 
 def test_the_stale_check_reads_zero_until_an_input_changes(built, tmp_path):
     _comp, path = built
     assert _failing(path) == []
-    for sheet, cell, value in (("Inputs", "B5", 0.0501), ("Feed", "D2", 0.0)):
+    for sheet, cell, value in (
+        ("Inputs", "B5", 0.0501),
+        ("Feed", "D2", 0.0),
+        ("Stored", "C6", 901.0),
+    ):
         wb = openpyxl.load_workbook(path)
         assert wb[sheet][cell].value is not None
         wb[sheet][cell] = value
@@ -65,3 +69,23 @@ def test_only_scalar_inputs_can_be_stored():
     )
     with pytest.raises(ValueError, match="scalar external inputs"):
         template.compose([step], EXT, "Bad", stored=["repayment_flag"])
+
+
+def test_the_snapshot_holds_typed_values_not_numbers_inside_formulas(built):
+    """Excel keeps 15 significant digits of a number written in a formula, so a snapshot written that way could
+    differ from the input on a clean book. The snapshot is typed in cells and compared cell to cell."""
+    _comp, path = built
+    ws = openpyxl.load_workbook(path)["Stored"]
+    import re
+
+    formulas = [
+        c.value
+        for row in ws.iter_rows()
+        for c in row
+        if isinstance(c.value, str) and c.value.startswith("=")
+    ]
+    flags = [f for f in formulas if "<>" in f]
+    assert len(flags) == 3  # one stored result, one scalar input, one series input
+    assert not [
+        f for f in formulas if re.search(r"\d\.\d", f)
+    ]  # no decimal number inside any formula
