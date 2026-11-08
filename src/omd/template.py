@@ -45,6 +45,42 @@ class Step:
         return self.note or "; ".join(self.module.scope.get("in", []))
 
 
+@dataclass(frozen=True)
+class CaseGrid:
+    """Scenario-driven inputs shown together on Inputs: one row per driver, one column per case, and a Live column
+    that picks the selected case.
+
+    `selector` is the name of the external input that picks the case (1 = the first of `cases`). Each row is
+    (label, the external input for each case in order, live name or None). With a live name, the Live cell is an
+    input of the model under that name (its value is derived from the selector); without one, it is shown only."""
+
+    title: str
+    selector: str
+    cases: tuple[str, ...]
+    rows: tuple[tuple[str, tuple[str, ...], str | None], ...]
+
+    def __post_init__(self) -> None:
+        for label, names, _live in self.rows:
+            if len(names) != len(self.cases):
+                raise ValueError(
+                    f"case grid row {label!r} has {len(names)} inputs for {len(self.cases)} cases"
+                )
+
+
+def derive(external: dict, grids=(), picks=None) -> dict:
+    """The external inputs with every derived one filled in: a grid's live inputs and every pick take the value the
+    selector picks. Used to build, and again whenever an input is moved, so the oracle sees what the workbook does."""
+    ext = dict(external)
+    for g in grids:
+        sel = int(float(ext[g.selector]))
+        for _label, names, live in g.rows:
+            if live is not None:
+                ext[live] = float(ext[names[sel - 1]])
+    for name, (selector, options) in (picks or {}).items():
+        ext[name] = float(ext[options[int(float(ext[selector])) - 1]])
+    return ext
+
+
 @dataclass
 class Composed:
     wb: Workbook
@@ -94,6 +130,8 @@ def compose(
     periods: list | None = None,
     style: str | StyleProfile | None = None,
     stored: Collection[str] = (),
+    grids: Collection[CaseGrid] = (),
+    picks: dict[str, tuple[str, list[str]]] | None = None,
 ) -> Composed:
     """`link_checks`: (label, formula(comp, col)) pairs, each a check row on Calcs that joins modules the ports cannot
     (for example a scalar that must equal the last value of a series). Each reads 0 when it holds.
@@ -104,7 +142,11 @@ def compose(
     `stored`: names of scalar external inputs that are results the build computed (for example a scenario table run
     through the oracle once per point), not assumptions. They go on a Stored sheet, with a snapshot of every other
     input as it was when they were computed, and a Summary check reads non-zero once any input differs from its
-    snapshot: the stored results are then stale, and the model must be rebuilt."""
+    snapshot: the stored results are then stale, and the model must be rebuilt.
+    `grids`: case grids (see `CaseGrid`), written on Inputs in place of a plain list for their inputs.
+    `picks`: {name: (selector, [stored result per case])}: an input that is the stored result the selector picks,
+    written on the Stored sheet as a live CHOOSE over the stored values, so it follows the selector. A selector
+    is left out of the stale snapshot: the stored results hold every case."""
     names = [s.module.name for s in steps]
     assert len(set(names)) == len(names), "a module name may appear once in a template"
     labels = list(periods) if periods is not None else [f"P{i + 1}" for i in range(N_PERIODS)]
@@ -120,6 +162,8 @@ def compose(
                     raise ValueError(
                         f"series input {src[4:]!r} has {len(v)} values; the model has {n} periods"
                     )
+    grids, picks = list(grids), dict(picks or {})
+    external = derive(external, grids, picks)
     fastblock.reset()
     expected = chained_oracle(steps, external)
     wb = Workbook(title, labels, opening=True, style=style)
@@ -138,11 +182,25 @@ def compose(
     bad = [k for k in stored if k not in ext_scalar]
     if bad:
         raise ValueError(f"stored results must be scalar external inputs of the template: {bad}")
-    assumed = [k for k in ext_scalar if k not in stored]
+    bad = [k for k in picks if k not in ext_scalar or any(o not in stored for o in picks[k][1])]
+    if bad:
+        raise ValueError(
+            f"a pick must be a scalar input whose options are all stored results: {bad}"
+        )
+    in_grid = {g.selector for g in grids} | {
+        n for g in grids for _l, names, live in g.rows for n in (*names, live) if n is not None
+    }
+    assumed = [k for k in ext_scalar if k not in stored and k not in in_grid and k not in picks]
     refs = (
         wb.inputs("Scalar inputs", {k: (k, float(external[k])) for k in assumed}) if assumed else {}
     )
-    sources_ext = dict(refs)
+    live_refs: dict[str, str] = {}
+    for g in grids:
+        grid_refs, grid_live = _case_grid(wb, g, external, ext_scalar)
+        refs.update(grid_refs)
+        live_refs.update(grid_live)
+    selectors = {g.selector for g in grids} | {sel for sel, _o in picks.values()}
+    sources_ext = {**refs, **live_refs}
     feed_rows: dict[str, int] = {}
     if ext_series:
         feed = wb.add_sheet("Feed")
@@ -156,7 +214,12 @@ def compose(
             for i, v in enumerate(external[k]):
                 feed.cell(row=r, column=pcol[wb.period_cols[i]], value=float(v))
             sources_ext[k] = f"Feed!{{col}}{r}"
-    stored_refs = _stored_sheet(wb, stored, external, refs, ext_series, feed_rows) if stored else {}
+    snap = {k: v for k, v in refs.items() if k not in selectors}
+    stored_refs = (
+        _stored_sheet(wb, stored, external, snap, ext_series, feed_rows, picks, refs)
+        if stored
+        else {}
+    )
     sources_ext.update(stored_refs)
 
     # The contents list sits at the top of Calcs and is written last: one line per chapter, plus a heading and a hint.
@@ -224,9 +287,14 @@ def compose(
 
     comp = Composed(wb, calcs, steps, ctxs, specs, spans, expected)
     comp.mirror_rows = mirror_rows
+    comp.derive = lambda ext: derive(ext, grids, picks)
     comp.ext_cells = {
         **{k: ("Inputs", ref.split("!", 1)[1].replace("$", "")) for k, ref in refs.items()},
-        **{k: (STORED, ref.split("!", 1)[1].replace("$", "")) for k, ref in stored_refs.items()},
+        **{
+            k: (STORED, ref.split("!", 1)[1].replace("$", ""))
+            for k, ref in stored_refs.items()
+            if k not in picks
+        },
         **{k: ("Feed", feed_rows[k]) for k in ext_series},
     }
     if link_checks:
@@ -260,13 +328,61 @@ def compose(
     return comp
 
 
+def _case_grid(wb, g: CaseGrid, external, units) -> tuple[dict[str, str], dict[str, str]]:
+    """Write one case grid on the Inputs sheet. Returns ({input: cell ref} for the selector and the case cells,
+    {live name: cell ref})."""
+    S = wb.style
+    if wb.inputs_sheet is None:
+        wb.inputs("Scalar inputs", {})
+    ws = wb.inputs_sheet
+    r = wb._input_row
+    S.section(ws.cell(row=r, column=1, value=g.title))
+    r += 1
+    choices = ", ".join(f"{i} = {c}" for i, c in enumerate(g.cases, start=1))
+    ws.cell(row=r, column=1, value=f"Selected case ({choices})")
+    sel = ws.cell(row=r, column=2, value=float(external[g.selector]))
+    S.mark_input(sel, "0")
+    refs = {g.selector: f"Inputs!$B${r}"}
+    sel_ref = f"$B${r}"
+    r += 1
+    S.colhdr(ws.cell(row=r, column=1, value=""), right=False)
+    S.colhdr(ws.cell(row=r, column=2, value="Live"))
+    for j, case in enumerate(g.cases, start=3):
+        S.colhdr(ws.cell(row=r, column=j, value=case))
+    unit_col = 3 + len(g.cases)
+    S.colhdr(ws.cell(row=r, column=unit_col, value="Unit"), right=False)
+    r += 1
+    live: dict[str, str] = {}
+    for label, names, live_name in g.rows:
+        ws.cell(row=r, column=1, value=label)
+        letters = [ws.cell(row=r, column=j).column_letter for j in range(3, 3 + len(names))]
+        lc = ws.cell(
+            row=r, column=2, value=f"=CHOOSE({sel_ref},{','.join(f'{c}{r}' for c in letters)})"
+        )
+        lc.number_format = S.fmt_for(float(external[names[0]]))
+        for j, name in enumerate(names, start=3):
+            c = ws.cell(row=r, column=j, value=float(external[name]))
+            S.mark_input(c, S.fmt_for(float(external[name])))
+            refs[name] = f"Inputs!${ws.cell(row=r, column=j).column_letter}${r}"
+        ws.cell(row=r, column=unit_col, value=units.get(names[0], ""))
+        if live_name is not None:
+            live[live_name] = f"Inputs!$B${r}"
+        r += 1
+    wb._input_row = r + 1
+    for name, ref in refs.items():
+        wb._refs[name] = ref
+    return refs, live
+
+
 STORED = "Stored"
 _STALE_LABEL = (
     "Stored results: inputs changed since the build computed them, rebuild the model (count)"
 )
 
 
-def _stored_sheet(wb, stored, external, refs, ext_series, feed_rows) -> dict[str, str]:
+def _stored_sheet(
+    wb, stored, external, refs, ext_series, feed_rows, picks=None, all_refs=None
+) -> dict[str, str]:
     """The Stored sheet. Column B flags a change (1) on every row; the totals count them.
 
     * Stored results: C is the value the model reads, D the same value as built. B reads 1 if C was edited.
@@ -301,6 +417,12 @@ def _stored_sheet(wb, stored, external, refs, ext_series, feed_rows) -> dict[str
         ws.cell(row=r, column=2, value=f"=(C{r}<>D{r})*1")
         for col in (3, 4):
             ws.cell(row=r, column=col, value=v).number_format = S.fmt_for(v)
+        out[k] = f"{STORED}!$C${r}"
+        r += 1
+    for k, (selector, options) in (picks or {}).items():
+        ws.cell(row=r, column=1, value=f"{k}: the stored result the selector picks")
+        cells = ",".join(out[o].split("!", 1)[1] for o in options)
+        ws.cell(row=r, column=3, value=f"=CHOOSE({all_refs[selector]},{cells})")
         out[k] = f"{STORED}!$C${r}"
         r += 1
     r += 1
@@ -518,7 +640,7 @@ def inputs_drive_outputs(
             changed = os.path.join(d, "moved.xlsx")
             w.save(changed)
             values = evaluate_cells(changed, ("Calcs",))
-            want = chained_oracle(comp.steps, moved)
+            want = chained_oracle(comp.steps, getattr(comp, "derive", dict)(moved))
             for mod, outs in want.items():
                 for port, series in outs.items():
                     for i, col in enumerate(cols):

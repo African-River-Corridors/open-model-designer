@@ -55,7 +55,7 @@ from ..modules import (
     working_capital,
 )
 from ..modules.scenarios import make_scenarios, run_points
-from ..template import Composed, Step, chained_oracle, compose
+from ..template import CaseGrid, Composed, Step, chained_oracle, compose
 from ._glue import glue
 
 CONSTRUCTION_PERIODS = 2
@@ -367,9 +367,17 @@ def external(**overrides) -> dict:
 #: the scenario module's inputs that the build computes by running the oracle once per point: results, not
 #: assumptions. They sit on the Stored sheet, guarded by a check that reads non-zero once any input changes.
 STORED_RESULTS = (
-    "base_result", "live_result",
+    "base_result",
     *(f"scenario_result__{s}" for s in SCENARIO_NAMES),
     *(f"result_{k}__{d}" for d in DRIVERS for k in ("down", "up")),
+)  # fmt: skip
+#: the live result is the stored result the selector picks: a live formula, so it follows the selector
+PICKS = {"live_result": ("scenario_selector", [f"scenario_result__{s}" for s in SCENARIO_NAMES])}
+#: the scenario multipliers, one row per driver and one column per scenario, with the live one beside them
+SCENARIO_GRID = CaseGrid(
+    "Scenarios: multiplier on each driver, by scenario", "scenario_selector", SCENARIO_NAMES,
+    tuple((f"{d.capitalize()} multiplier", tuple(f"multiplier__{d}__{s}" for s in SCENARIO_NAMES), None)
+          for d in DRIVERS),
 )  # fmt: skip
 
 
@@ -475,7 +483,7 @@ def build(ext: dict | None = None) -> Composed:
         return "+".join(f"ABS({sheet}!{col}{rows[f'cash_waterfall.unpaid_{t}']})" for t in tiers)
 
     comp = compose(
-        steps(), ext, "Project finance (single SPV)", stored=STORED_RESULTS,
+        steps(), ext, "Project finance (single SPV)", stored=STORED_RESULTS, picks=PICKS, grids=[SCENARIO_GRID],
         link_checks=[
             ("Check - term debt opens at the construction debt left at the end of construction",
              construction_debt_is_term_opening),

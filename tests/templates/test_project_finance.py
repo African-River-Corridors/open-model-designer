@@ -205,19 +205,24 @@ def test_a_live_scenario_flows_through_the_model_and_reconciles_to_the_table():
     assert comp.expected["returns"]["equity_npv"][0] == pytest.approx(ext["live_result"])
 
 
-def test_the_scenario_check_reads_red_when_the_live_model_is_not_the_selected_scenario():
+def test_the_scenario_check_reads_red_when_the_table_disagrees_with_the_live_model():
+    """Negative control. The live result is picked from the table by the selector, so moving the selector cannot
+    break it, and the scenarios module's own reconciliation (live less table) is then nil by construction. The guard
+    is the template check that the picked result is the model's own equity NPV: a wrong table result must fail it."""
     ext = pf.external()
-    ext["scenario_selector"] = (
-        2.0  # the multipliers flow into the model, the table's live result still says base
-    )
+    ext["scenario_result__base"] += 50.0
     comp = pf.build(ext)
-    assert read_zero_checks(saved(comp), "Summary", min_rows=30, out=lambda *_: None) >= 1
+    lines = []
+    read_zero_checks(saved(comp), "Summary", min_rows=30, out=lines.append)
+    assert any("FAIL" in s and "is the model's equity NPV" in s for s in lines)
 
 
 def test_gate_no_calculation_on_calcs_reads_another_sheet(built):
     """Every input is mirrored at the top of Calcs, and only the mirror reads the Inputs and Feed sheets."""
     _ext, comp = built
-    assert len(comp.mirror_rows) == len(comp.ext_cells)
+    assert len(comp.mirror_rows) == len(comp.ext_cells) + len(
+        pf.PICKS
+    )  # a pick is mirrored, not edited
     assert audit_offsheet(saved(comp), comp.calcs.ws.title, comp.mirror_rows.values()) == []
 
 
@@ -269,3 +274,19 @@ def test_a_change_to_an_unselected_scenario_is_caught_as_stale(built, tmp_path):
     read_zero_checks(moved, "Summary", min_rows=30, out=lambda s: lines.append(s))
     failing = [s for s in lines if s.lstrip().startswith("FAIL")]
     assert failing and all("Stored results" in s for s in failing)
+
+
+def test_the_scenario_multipliers_are_a_grid_and_the_selector_keeps_every_check_at_zero(
+    built, tmp_path
+):
+    """Pick the downside: the live model, the scenario table and every check still agree (the selector is not an
+    input the stored results depend on)."""
+    _ext, comp = built
+    wb = openpyxl.load_workbook(saved(comp))
+    sheet, cell = comp.ext_cells["scenario_selector"]
+    labels = [wb[sheet].cell(row=r, column=1).value for r in range(1, wb[sheet].max_row + 1)]
+    assert {"Price multiplier", "Volume multiplier", "Opex multiplier"} <= set(labels)
+    wb[sheet][cell] = 2
+    moved = str(tmp_path / "downside.xlsx")
+    wb.save(moved)
+    assert read_zero_checks(moved, "Summary", min_rows=30, out=lambda *_: None) == 0
