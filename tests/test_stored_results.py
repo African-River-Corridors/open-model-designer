@@ -46,7 +46,7 @@ def test_the_stale_check_reads_zero_until_an_input_changes(built, tmp_path):
     assert _failing(path) == []
     for sheet, cell, value in (
         ("Inputs", "B5", 0.0501),
-        ("Feed", "D2", 0.0),
+        ("Feed", "E2", 0.0),
         ("Stored", "C6", 901.0),
     ):
         wb = openpyxl.load_workbook(path)

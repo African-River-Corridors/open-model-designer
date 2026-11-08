@@ -83,6 +83,9 @@ class Block:
         self.local: dict[str, int] = {}  # block-local name -> sheet row
         self.kinds: dict[str, str] = {}  # block-local name -> "link" | "calc"
         self.vals: dict[str, list[float]] = {}
+        self._last_kind: str | None = (
+            None  # the kind of the row written last, to see where a step starts
+        )
         calcs.skip_rows()  # FAST readability: breathing room before a block header
         if note:
             calcs.section(title, note=note)
@@ -305,6 +308,25 @@ class Block:
         return _rr
 
     # -- internals -----------------------------------------------------------------------
+    STEP_GAP_PT = 24  # height of the row that starts a new step: a visible gap without a blank row
+
+    def _style_step(self, rr: int, kind: str, total: bool) -> None:
+        """Show the block as steps: ingredients (italic links), then the result (bold, ruled above). The first link
+        after a result starts a new step and is drawn taller, which reads as a gap but moves no row."""
+        style = self.wb.style
+        if not getattr(style, "step_style", False):
+            return
+        ws = self.c.ws
+        if kind == "link":
+            style.step_link(ws.cell(row=rr, column=1))
+            if getattr(self.wb, "units_col", None):
+                style.step_link(ws.cell(row=rr, column=self.wb.units_col))
+            if self._last_kind == "calc":
+                ws.row_dimensions[rr].height = self.STEP_GAP_PT
+        elif not total:
+            style.step_result(ws, rr, self.c.last_col)
+        self._last_kind = kind
+
     @property
     def _node_prefix(self) -> str:
         return self.title if self.scope is None else f"{self.scope}/{self.title}"
@@ -349,6 +371,7 @@ class Block:
             rowkey, f"{prefix}{label}", lambda cc: per_col(cc.col), values=list(values), fmt=fmt
         )
         rr = self.c.rows()[rowkey]
+        self._style_step(rr, kind, bold)
         self.local[name] = rr
         self.kinds[name] = kind
         self.vals[name] = list(values)
