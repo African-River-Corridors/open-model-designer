@@ -14,12 +14,13 @@ from __future__ import annotations
 import os
 import tempfile
 from collections.abc import Collection
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 import openpyxl
 from openpyxl.utils import column_index_from_string
 
 from . import acceptance
+from .assumptions import AssumptionSet, write_inputs
 from .harness import fastblock
 from .harness._eval import evaluate_cells
 from .module import BuildContext, Module
@@ -132,6 +133,7 @@ def compose(
     stored: Collection[str] = (),
     grids: Collection[CaseGrid] = (),
     picks: dict[str, tuple[str, list[str]]] | None = None,
+    assumptions: AssumptionSet | None = None,
 ) -> Composed:
     """`link_checks`: (label, formula(comp, col)) pairs, each a check row on Calcs that joins modules the ports cannot
     (for example a scalar that must equal the last value of a series). Each reads 0 when it holds.
@@ -146,7 +148,10 @@ def compose(
     `grids`: case grids (see `CaseGrid`), written on Inputs in place of a plain list for their inputs.
     `picks`: {name: (selector, [stored result per case])}: an input that is the stored result the selector picks,
     written on the Stored sheet as a live CHOOSE over the stored values, so it follows the selector. A selector
-    is left out of the stale snapshot: the stored results hold every case."""
+    is left out of the stale snapshot: the stored results hold every case.
+    `assumptions`: an assumption set (`omd.assumptions`). A scalar input it holds takes its value from the set
+    (the `external` dict overrides it) and is written on Inputs with its label, unit, source, date, author and
+    estimate flag. Other inputs are written as a plain list."""
     names = [s.module.name for s in steps]
     assert len(set(names)) == len(names), "a module name may appear once in a template"
     labels = list(periods) if periods is not None else [f"P{i + 1}" for i in range(N_PERIODS)]
@@ -162,6 +167,8 @@ def compose(
                     raise ValueError(
                         f"series input {src[4:]!r} has {len(v)} values; the model has {n} periods"
                     )
+    if assumptions is not None:
+        external = {**assumptions.values(), **external}
     grids, picks = list(grids), dict(picks or {})
     external = derive(external, grids, picks)
     fastblock.reset()
@@ -191,9 +198,17 @@ def compose(
         n for g in grids for _l, names, live in g.rows for n in (*names, live) if n is not None
     }
     assumed = [k for k in ext_scalar if k not in stored and k not in in_grid and k not in picks]
-    refs = (
-        wb.inputs("Scalar inputs", {k: (k, float(external[k])) for k in assumed}) if assumed else {}
-    )
+    held = [k for k in assumed if k in assumptions.items] if assumptions is not None else []
+    plain = [k for k in assumed if k not in held]
+    refs = wb.inputs("Scalar inputs", {k: (k, float(external[k])) for k in plain}) if plain else {}
+    if held:
+        subset = AssumptionSet(
+            items={k: replace(assumptions[k], value=float(external[k])) for k in held},
+            timeline=assumptions.timeline,
+        )
+        refs.update(write_inputs(wb, subset, section="Assumptions"))
+        for j, h in enumerate(("Value", "Unit", "Source", "Date", "Who", "Flag"), start=2):
+            wb.style.colhdr(wb.inputs_sheet.cell(row=3, column=j, value=h), right=False)
     live_refs: dict[str, str] = {}
     for g in grids:
         grid_refs, grid_live = _case_grid(wb, g, external, ext_scalar)

@@ -30,15 +30,31 @@ def audit_hardcodes(
     *,
     input_sheets: Collection[str] = ("Inputs", "Feed"),
     calc_sheets: Collection[str] = ("Calcs",),
+    stored_sheets: Collection[str] = ("Stored",),
     declared: Mapping[str, str] | None = None,
     out=None,
 ) -> list[str]:
-    """One line per undeclared typed number outside `input_sheets`; empty when every output is a formula."""
+    """One line per undeclared typed number outside `input_sheets`; empty when every output is a formula.
+
+    A sheet in `stored_sheets` holds results the build computed, guarded by the stored-results check (`compose`'s
+    `stored=`): its numbers are not findings, and they print as declared when `out` is given."""
     declared = dict(declared or {})
     wb = openpyxl.load_workbook(path)
     problems: list[str] = []
     for ws in wb.worksheets:
         if ws.title in input_sheets:
+            continue
+        if ws.title in stored_sheets:
+            if out is not None:
+                n = sum(
+                    1
+                    for row in ws.iter_rows()
+                    for c in row
+                    if isinstance(c.value, int | float) and not isinstance(c.value, bool)
+                )
+                out(
+                    f"declared: {ws.title} holds {n} stored numbers, guarded by the stored-results check"
+                )
             continue
         for row in ws.iter_rows():
             for c in row:
