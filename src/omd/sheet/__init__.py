@@ -7,7 +7,16 @@ reproduce a Python source-of-truth.
 
 from . import formatting
 from .verify import evaluate, verify
-from .workbook import Calcs, PeriodSheet, Table, Workbook
+from .workbook import Calcs, PeriodSheet, SheetSet, Table, Workbook
 
-__all__ = ["Calcs", "PeriodSheet", "Table", "Workbook", "evaluate", "formatting", "verify"]
+__all__ = [
+    "Calcs",
+    "PeriodSheet",
+    "SheetSet",
+    "Table",
+    "Workbook",
+    "evaluate",
+    "formatting",
+    "verify",
+]
 __version__ = "0.1.0"
