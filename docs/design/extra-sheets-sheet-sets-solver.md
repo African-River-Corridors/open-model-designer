@@ -31,9 +31,11 @@ ps.skip_rows(2)
 ps.next_row, ps.header_row, ps.ws, ps.name  # read-only cursor and handles
 ```
 
-**Shape.** `PeriodSheet` is the base class; `Calcs` becomes `PeriodSheet` plus the timeline rows, row keys and the
-"one Calcs per book" rule. `PeriodSheet.row` returns the row number; it takes an optional `key` so a period sheet
-can be addressed like Calcs (`ps.address(key, ...)`). The header row, the column letters and the formats all come
+**Shape.** `PeriodSheet` and `Calcs` are both built on one private base that holds the header row, the cursor,
+sections, notes, addresses and the row writer. `Calcs` adds the timeline rows and the "one Calcs per book" rule.
+`PeriodSheet.row` returns the row number; it takes an optional `key` so a period sheet can be addressed like Calcs
+(`ps.address(key, ...)`). `Calcs.row` keeps its signature and still returns the key, which is why the two do not
+inherit one from the other. The header row, the column letters and the formats all come
 from the workbook and its style profile, so a period sheet cannot drift from Calcs.
 
 **Rules.** A period sheet is a presentation sheet: `audit_offsheet` and `audit_hardcodes` treat it as one (no typed
