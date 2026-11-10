@@ -150,7 +150,7 @@ def compose(
     written on the Stored sheet as a live CHOOSE over the stored values, so it follows the selector. A selector
     is left out of the stale snapshot: the stored results hold every case.
     `assumptions`: an assumption set (`omd.assumptions`). A scalar input it holds takes its value from the set
-    (the `external` dict overrides it) and is written on Inputs with its label, unit, source, date, author and
+    (the `external` dict overrides it, and the row then reads "override: external" with no date or author) and is written on Inputs with its label, unit, source, date, author and
     estimate flag. Other inputs are written as a plain list."""
     names = [s.module.name for s in steps]
     assert len(set(names)) == len(names), "a module name may appear once in a template"
@@ -167,6 +167,7 @@ def compose(
                     raise ValueError(
                         f"series input {src[4:]!r} has {len(v)} values; the model has {n} periods"
                     )
+    overridden = set(external) & set(assumptions.items) if assumptions is not None else set()
     if assumptions is not None:
         external = {**assumptions.values(), **external}
     grids, picks = list(grids), dict(picks or {})
@@ -207,6 +208,12 @@ def compose(
             timeline=assumptions.timeline,
         )
         refs.update(write_inputs(wb, subset, section="Assumptions"))
+        for k in held:
+            if k in overridden:  # the set's provenance does not describe the new value
+                row = int(refs[k].rsplit("$", 1)[1])
+                wb.inputs_sheet.cell(row=row, column=4, value="override: external")
+                wb.inputs_sheet.cell(row=row, column=5).value = None
+                wb.inputs_sheet.cell(row=row, column=6).value = None
         for j, h in enumerate(("Value", "Unit", "Source", "Date", "Who", "Flag"), start=2):
             wb.style.colhdr(wb.inputs_sheet.cell(row=3, column=j, value=h), right=False)
     live_refs: dict[str, str] = {}

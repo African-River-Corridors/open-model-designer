@@ -18,11 +18,21 @@ import re
 from collections.abc import Collection, Mapping
 
 import openpyxl
+from openpyxl.utils import column_index_from_string
 
 #: a cell reference, with or without a sheet name and $ signs
 _REF = re.compile(r"\$?[A-Z]{1,3}\$?\d+(?![\w(])")
 #: a string literal in a formula, removed before looking for references
 _STR = re.compile(r'"(?:[^"]|"")*"')
+
+
+def _covered_columns(ws, r: int) -> set[int]:
+    """Columns on row `r` that the row's change flag (column B formula) compares, by a cell of this sheet."""
+    flag = ws.cell(row=r, column=2).value
+    if not (isinstance(flag, str) and flag.startswith("=")):
+        return set()
+    own = re.findall(r"(?<![!\w$])\$?([A-Z]{1,3})\$?" + str(r) + r"(?![\w(])", _STR.sub("", flag))
+    return {column_index_from_string(x) for x in own}
 
 
 def audit_hardcodes(
@@ -37,28 +47,23 @@ def audit_hardcodes(
     """One line per undeclared typed number outside `input_sheets`; empty when every output is a formula.
 
     A sheet in `stored_sheets` holds results the build computed, guarded by the stored-results check (`compose`'s
-    `stored=`): its numbers are not findings, and they print as declared when `out` is given."""
+    `stored=`). A number is skipped there only in a column the row's change flag (column B) reads on the same sheet;
+    any other typed number or constant formula on the sheet is a finding. Skipped numbers print as declared when
+    `out` is given."""
     declared = dict(declared or {})
     wb = openpyxl.load_workbook(path)
     problems: list[str] = []
     for ws in wb.worksheets:
         if ws.title in input_sheets:
             continue
-        if ws.title in stored_sheets:
-            if out is not None:
-                n = sum(
-                    1
-                    for row in ws.iter_rows()
-                    for c in row
-                    if isinstance(c.value, int | float) and not isinstance(c.value, bool)
-                )
-                out(
-                    f"declared: {ws.title} holds {n} stored numbers, guarded by the stored-results check"
-                )
-            continue
+        guarded = 0
         for row in ws.iter_rows():
+            covered = _covered_columns(ws, row[0].row) if ws.title in stored_sheets else set()
             for c in row:
                 v = c.value
+                if c.column in covered and isinstance(v, int | float) and not isinstance(v, bool):
+                    guarded += 1
+                    continue
                 if isinstance(v, str) and v.startswith("="):
                     if ws.title in calc_sheets or _REF.search(_STR.sub("", v)):
                         continue
@@ -82,4 +87,8 @@ def audit_hardcodes(
                     problems.append(line)
                 elif out is not None:
                     out(f"declared: {line}: {reason}")
+        if guarded and out is not None:
+            out(
+                f"declared: {ws.title} holds {guarded} stored numbers, guarded by the stored-results check"
+            )
     return problems
