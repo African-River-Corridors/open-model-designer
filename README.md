@@ -66,6 +66,14 @@ to another project.) It is not on PyPI yet: until the first release, install fro
 The gates prove it: `audit_offsheet` (Calcs reads other sheets only in its inputs block) and `audit_hardcodes`
 (no typed number outside the input sheets).
 
+## A solved value
+
+Some inputs are not assumptions: the build solves them so a target holds, such as a tariff that meets a target
+return. `omd.solve.bisect_threshold` finds the value with a fixed algorithm (no early exit, so the bits repeat).
+`solved_input` writes it on Inputs under "Solved values", marked SOLVED so a reader does not edit it.
+`solve_check` adds a Calcs check row that reads 0 while the live residual is within tolerance, and 1 once an edited
+input moves it. Rebuild to solve again.
+
 ## Run it
 
 ```bash
