@@ -437,9 +437,11 @@ class Calcs(_PeriodGrid):
 # Sheet set — a template names its own sheets and tab order
 # ==============================================================================================
 _STR = re.compile(r'"(?:[^"]|"")*"')  # a string literal inside a formula
-#: a sheet reference: 'quoted name'!, plain_name! or a 3-D First:Last!, never the tail of a longer name
+#: a sheet reference: 'quoted name'!, plain_name! or a 3-D First:Last!, never the tail of a longer name. A first name
+#: that reads as a cell is the start of a range (``Calcs!A1:Calcs!B1``), not a 3-D reference.
 _PLAIN = r"[A-Za-z_\\][\w.]*"
-_SHEET_REF = re.compile(rf"(?<![\w.'])(?:'((?:[^']|'')+)'|((?:{_PLAIN}:)?{_PLAIN}))!")
+_NOT_CELL = r"(?!(?i:[A-Z]{1,3}\d+|R\d*C\d*|R|C):)"  # _CELL_LIKE, then the colon
+_SHEET_REF = re.compile(rf"(?<![\w.'])(?:'((?:[^']|'')+)'|((?:{_NOT_CELL}{_PLAIN}:)?{_PLAIN}))!")
 _BAD_TITLE = re.compile(r"[\\*?:/\[\]]")
 
 
