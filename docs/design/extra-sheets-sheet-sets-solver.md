@@ -23,12 +23,12 @@ white fill, a title, frozen panes. Rows on it link to Calcs, one formula shifted
 **API.**
 
 ```python
-ps = wb.period_sheet("Annual view", title="Annual view", subtitle=None)   # -> PeriodSheet
-ps.section("Revenue")                                   # bold accent header with a rule
-ps.note("Each line links to its Calcs row.")            # italic muted logic note
+ps = wb.period_sheet("Annual view", title="Annual view", subtitle=None)  # -> PeriodSheet
+ps.section("Revenue")  # bold accent header with a rule
+ps.note("Each line links to its Calcs row.")  # italic muted logic note
 ps.row("Revenue", lambda c: f"={calcs.address('rev', col=c.col)}", values=rev, fmt=F.NUM)
 ps.skip_rows(2)
-ps.next_row, ps.header_row, ps.ws, ps.name               # read-only cursor and handles
+ps.next_row, ps.header_row, ps.ws, ps.name  # read-only cursor and handles
 ```
 
 **Shape.** `PeriodSheet` is the base class; `Calcs` becomes `PeriodSheet` plus the timeline rows, row keys and the
@@ -47,13 +47,13 @@ sheet's quoting rules.
 **API** (on `PeriodSheet`, so on Calcs too):
 
 ```python
-calcs.row_of("rev")                         # 41
-calcs.address("rev", col="E")               # "Calcs!$E$41"   absolute, sheet-qualified
-calcs.address("rev", period=1)              # the first period column
-calcs.address("rev", open=True)             # the Open column
-calcs.address("rev", col="E", absolute=False, sheet=False)   # "E41"
-calcs.span("rev")                           # "Calcs!$E$41:$AF$41"   every period column
-wb.worksheets                               # every worksheet, in tab order (read-only tuple)
+calcs.row_of("rev")  # 41
+calcs.address("rev", col="E")  # "Calcs!$E$41"   absolute, sheet-qualified
+calcs.address("rev", period=1)  # the first period column
+calcs.address("rev", open=True)  # the Open column
+calcs.address("rev", col="E", absolute=False, sheet=False)  # "E41"
+calcs.span("rev")  # "Calcs!$E$41:$AF$41"   every period column
+wb.worksheets  # every worksheet, in tab order (read-only tuple)
 ```
 
 A sheet name with a space or a quote is quoted (`'Key results'!$E$41`). An unknown key raises `KeyError` naming
@@ -67,13 +67,15 @@ formulas that point at it, so a rename without a rewrite leaves `#REF!` all over
 **API.**
 
 ```python
-SHEETS = SheetSet([                      # build name -> name the reader sees, in tab order
-    ("Cover", "Title"),
-    ("Outputs", "Key results"),
-    ("Inputs", "Inputs"),
-    ("Calcs", "Workings"),
-    ("Checks", "Checks"),
-])
+SHEETS = SheetSet(
+    [  # build name -> name the reader sees, in tab order
+        ("Cover", "Title"),
+        ("Outputs", "Key results"),
+        ("Inputs", "Inputs"),
+        ("Calcs", "Workings"),
+        ("Checks", "Checks"),
+    ]
+)
 wb.apply_sheet_set(SHEETS)
 ```
 
@@ -103,16 +105,20 @@ workbook must say, live, when an edited input means the value needs solving agai
 from omd.solve import bisect_threshold, solve_check, solved_input
 
 s = bisect_threshold(
-    f,              # x -> residual; f is non-increasing in x
-    lo=0.5, hi=2.0, # the bracket; hi grows by `grow` until f(hi) <= tol
-    tol=1e-6,       # done when f(x) <= tol
-    steps=60,       # fixed number of halvings: the answer is exact and repeatable
-    grow=2.0, cap=64.0,
+    f,  # x -> residual; f is non-increasing in x
+    lo=0.5,
+    hi=2.0,  # the bracket; hi grows by `grow` until f(hi) <= tol
+    tol=1e-6,  # done when f(x) <= tol
+    steps=60,  # fixed number of halvings: the answer is exact and repeatable
+    grow=2.0,
+    cap=64.0,
 )
-s.value      # the smallest x found with f(x) <= tol (the `hi` side of the final bracket)
+s.value  # the smallest x found with f(x) <= tol (the `hi` side of the final bracket)
 s.lo, s.hi, s.residual, s.steps, s.evaluations
 
-ref = solved_input(wb, "tariff_mult", "Tariff multiplier", s, fmt=F.RATE)   # an input cell, marked SOLVED
+ref = solved_input(
+    wb, "tariff_mult", "Tariff multiplier", s, fmt=F.RATE
+)  # an input cell, marked SOLVED
 solve_check(calcs, "tariff_check", "Tariff solve still holds", residual_formula, tol=1e-6)
 ```
 
