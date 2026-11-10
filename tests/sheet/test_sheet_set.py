@@ -52,6 +52,9 @@ def _same_numbers(before: str, after: str, names: dict[str, str]) -> None:
         ('=IF(Calcs!A1>0,"Calcs!A1",0)', '=IF(Workings!A1>0,"Calcs!A1",0)'),
         ("=Inputs!$B$5*2", "='Key inputs'!$B$5*2"),
         ("='Bob''s'!A1", "=Bobs!A1"),
+        ("=SUM(Calcs!A1:Calcs!B1)", "=SUM(Workings!A1:Workings!B1)"),
+        ("=SUM(Calcs!$A$1:Calcs!$B$1)", "=SUM(Workings!$A$1:Workings!$B$1)"),
+        ("=Calcs!A1:Calc!B1", "=Workings!A1:Sums!B1"),
     ],
 )
 def test_rewrite_whole_references_only(formula, expected):

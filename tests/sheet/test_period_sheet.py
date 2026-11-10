@@ -93,6 +93,15 @@ def test_set_layout_after_a_period_sheet_raises():
         wb.set_layout(open_col=3, first_period_col=4)
 
 
+def test_a_period_sheet_refuses_a_name_already_in_the_book():
+    wb = Workbook("Period", periods=["P1"])
+    wb.calcs()
+    for name in ("Calcs", "calcs"):  # Excel compares sheet names without case
+        with pytest.raises(ValueError, match="already"):
+            wb.period_sheet(name)
+    assert wb.sheet_names.count("Calcs") == 1 and "Calcs1" not in wb.sheet_names
+
+
 def test_rows_sections_and_cursor():
     wb, calcs = _book()
     ps = wb.period_sheet("View", title="A view")

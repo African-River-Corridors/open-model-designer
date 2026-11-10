@@ -22,10 +22,10 @@ with its ingredients linked just above it.
 ## Modules
 
 A module is one reusable piece of model logic: debt repayment, a cash waterfall, a tax engine, and so on.
-The library holds 29 so far, in `src/omd/modules/`. They cover capex funding, interest during construction,
+The library holds 31 so far, in `src/omd/modules/`. They cover capex funding, interest during construction,
 debt draw and repayment (linear, annuity, sculpted), cash sweeps, CFADS, cover ratios, a debt service reserve,
 lock-up, tax pools and losses, a tax engine, VAT, working capital, take-or-pay revenue, a cash waterfall,
-a distribution waterfall, FX conversion, returns, three statements, and scenarios. A project-finance template
+a distribution waterfall, FX conversion, returns (and returns_irr, for flows that change sign more than once), three statements, and scenarios (and scenarios_n, for any horizon). A project-finance template
 (`omd.templates.project_finance`) composes them into one workbook.
 
 A module declares its ports with units. It carries an oracle, the formulas, its own checks, a worked example,
