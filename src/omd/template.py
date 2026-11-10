@@ -24,7 +24,7 @@ from .assumptions import AssumptionSet, write_inputs
 from .harness import fastblock
 from .harness._eval import evaluate_cells
 from .module import BuildContext, Module
-from .sheet.workbook import Workbook
+from .sheet.workbook import SheetSet, Workbook
 from .style import StyleProfile
 
 N_PERIODS = acceptance.N_PERIODS
@@ -94,6 +94,13 @@ class Composed:
     check_rows: list[tuple[str, str, int]] = field(
         default_factory=list
     )  # (module, label, Calcs row)
+    sheet_names: dict[str, str] = field(
+        default_factory=dict
+    )  # build name -> the name the reader sees
+
+    def sheet(self, build_name: str) -> str:
+        """The name a sheet carries in the book, from the name `compose` built it under ("Calcs", "Summary", ...)."""
+        return self.sheet_names.get(build_name, build_name)
 
     def save(self, path: str) -> None:
         self.wb.save(path)
@@ -134,6 +141,7 @@ def compose(
     grids: Collection[CaseGrid] = (),
     picks: dict[str, tuple[str, list[str]]] | None = None,
     assumptions: AssumptionSet | None = None,
+    sheets: SheetSet | None = None,
 ) -> Composed:
     """`link_checks`: (label, formula(comp, col)) pairs, each a check row on Calcs that joins modules the ports cannot
     (for example a scalar that must equal the last value of a series). Each reads 0 when it holds.
@@ -151,7 +159,10 @@ def compose(
     is left out of the stale snapshot: the stored results hold every case.
     `assumptions`: an assumption set (`omd.assumptions`). A scalar input it holds takes its value from the set
     (the `external` dict overrides it, and the row then reads "override: external" with no date or author) and is written on Inputs with its label, unit, source, date, author and
-    estimate flag. Other inputs are written as a plain list."""
+    estimate flag. Other inputs are written as a plain list.
+    `sheets`: a sheet set (`omd.sheet.SheetSet`) over the build names (Inputs, Feed, Stored, Calcs, Summary), applied
+    last: the sheets take the set's names and order and every formula follows. `Composed.sheet(build name)` gives a
+    sheet's final name; the gates below find their sheets through it."""
     names = [s.module.name for s in steps]
     assert len(set(names)) == len(names), "a module name may appear once in a template"
     labels = list(periods) if periods is not None else [f"P{i + 1}" for i in range(N_PERIODS)]
@@ -347,6 +358,11 @@ def compose(
     _summary(comp)
     if stored:
         _stale_check(comp)
+    comp.sheet_names = {t: t for t in wb.sheet_names}
+    if sheets is not None:
+        wb.apply_sheet_set(sheets)
+        comp.sheet_names = sheets.names
+        comp.ext_cells = {k: (comp.sheet(sh), where) for k, (sh, where) in comp.ext_cells.items()}
     return comp
 
 
@@ -555,14 +571,15 @@ def evaluate_and_compare(comp: Composed, tol: float = 1e-6) -> list[str]:
     with tempfile.TemporaryDirectory() as d:
         path = os.path.join(d, "t.xlsx")
         comp.save(path)
-        values = evaluate_cells(path, ("Calcs",))
+        values = evaluate_cells(path, (comp.calcs.name,))
     rows = comp.calcs.rows()
     cols = list(comp.wb.period_cols)
+    key = f"{comp.calcs.name.upper()}'!"
     for name, outs in comp.expected.items():
         for port, want in outs.items():
             row = rows[f"{name}.{port}"]
             for i, col in enumerate(cols):
-                got = values.get(f"CALCS'!{col}{row}")
+                got = values.get(f"{key}{col}{row}")
                 if not isinstance(got, float) or abs(got - want[i]) > tol * max(1.0, abs(want[i])):
                     problems.append(f"{name}.{port} p{i + 1}: workbook {got} vs oracle {want[i]}")
     return problems
@@ -636,6 +653,7 @@ def inputs_drive_outputs(
     moves = moves or {}
     rows = comp.calcs.rows()
     cols = list(comp.wb.period_cols)
+    calcs, feed = comp.calcs.name, comp.sheet("Feed")
     bump = lambda v: v * 1.1 if v != 0 else 1.0  # noqa: E731
     with tempfile.TemporaryDirectory() as d:
         path = os.path.join(d, "t.xlsx")
@@ -653,20 +671,20 @@ def inputs_drive_outputs(
                 new = bump(float(external[name]))
             moved = {**external, name: new}
             w = openpyxl.load_workbook(path)
-            if sheet != "Feed":
+            if sheet != feed:
                 w[sheet][where] = moved[name]
             else:
                 for i, v in enumerate(moved[name]):
                     col = comp.wb.period_cols[i]
-                    w["Feed"][f"{col}{where}"] = float(v)
+                    w[feed][f"{col}{where}"] = float(v)
             changed = os.path.join(d, "moved.xlsx")
             w.save(changed)
-            values = evaluate_cells(changed, ("Calcs",))
+            values = evaluate_cells(changed, (calcs,))
             want = chained_oracle(comp.steps, getattr(comp, "derive", dict)(moved))
             for mod, outs in want.items():
                 for port, series in outs.items():
                     for i, col in enumerate(cols):
-                        got = values.get(f"CALCS'!{col}{rows[f'{mod}.{port}']}")
+                        got = values.get(f"{calcs.upper()}'!{col}{rows[f'{mod}.{port}']}")
                         if not isinstance(got, float) or abs(got - series[i]) > rel_tol * max(
                             1.0, abs(series[i])
                         ):
