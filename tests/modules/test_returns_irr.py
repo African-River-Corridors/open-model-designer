@@ -22,7 +22,6 @@ def test_every_irr_is_found_and_the_one_nearest_the_guess_is_reported():
     found = returns_irr.irrs(flows, dates)
     assert found == pytest.approx([-0.469805004289280, 0.115335033314822], abs=1e-9)
     assert returns_irr.xirr_near(flows, dates, 0.1) == pytest.approx(0.115335033314822, abs=1e-9)
-    assert returns_irr.xirr_near(flows, dates, -0.5) == pytest.approx(-0.469805004289280, abs=1e-9)
 
 
 def test_a_conventional_flow_has_one_sign_change_and_a_unique_irr():
@@ -38,3 +37,17 @@ def test_the_workbook_finds_the_same_irr_from_the_same_guess():
     step = Step(m, {p.name: f"ext:{p.name}" for p in m.inputs})
     comp = template.compose([step], dict(ENDS_NEGATIVE), "IRR")
     assert template.evaluate_and_compare(comp) == []
+
+
+@pytest.mark.parametrize("guess", [returns_irr.GUESS_LO, returns_irr.GUESS_HI])
+def test_the_workbook_agrees_with_the_oracle_at_the_edge_guesses(guess):
+    m = returns_irr.MODULE
+    step = Step(m, {p.name: f"ext:{p.name}" for p in m.inputs})
+    comp = template.compose([step], {**ENDS_NEGATIVE, "irr_guess": guess}, "IRR edge")
+    assert template.evaluate_and_compare(comp) == []
+
+
+@pytest.mark.parametrize("guess", [-0.5, -0.01, 0.51, 2.0])
+def test_a_guess_outside_the_range_is_rejected(guess):
+    with pytest.raises(ValueError, match="irr_guess"):
+        returns_irr.MODULE.oracle({**ENDS_NEGATIVE, "irr_guess": guess})

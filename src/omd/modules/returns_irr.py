@@ -15,6 +15,10 @@ For each holder (the project, and the equity investor), from cash flows with dat
     NPV   = sum of flow x 1 / (1 + discount rate)^years since the first flow     (discounted to the first flow's date)
     XIRR  = the annual rate at which that NPV is nil, on a 365-day year (the XIRR function's convention)
 
+`irr_guess` must lie in [0, 0.5] ratio/year. XIRR() in the workbook is Newton's method: from a guess below 0 it
+returns #NUM!, and from a guess above about 0.75 it can overshoot to another root or to the solver's clamp, on the
+golden flows. In [0, 0.5] the workbook and the oracle agree there. The oracle rejects a guess outside it.
+
 Equity payback is the first period in which cumulative equity cash flow is nil or positive; 0 if it never is.
 A result of one value per holder is written on every period's column (the same number across the row).
 Dates are whole days (XIRR drops any fraction of a day). Set `days_per_year` to 365 so NPV and XIRR use the same day count.
@@ -49,6 +53,7 @@ OUTPUTS = (
 )
 T = "Returns"
 GRID_LO, GRID_HI, GRID_STEP = -0.99, 10.0, 0.0005
+GUESS_LO, GUESS_HI = 0.0, 0.5  # the guesses at which XIRR() in the workbook and the oracle agree
 
 
 def irrs(flows, dates) -> list[float]:
@@ -127,6 +132,11 @@ def oracle(inputs: dict) -> dict[str, list[float]]:
     cum = _cum(e)
     payback = float(sum(1 for c in cum if c < 0) + 1) if cum[-1] >= 0 else 0.0
     g = float(inputs["irr_guess"])
+    if not GUESS_LO <= g <= GUESS_HI:
+        raise ValueError(
+            f"irr_guess {g} is outside [{GUESS_LO}, {GUESS_HI}]: XIRR() in the workbook does not reliably "
+            "find the root nearest a guess outside that range"
+        )
     ps, es = float(sign_changes(p)), float(sign_changes(e))
     return {
         "project_xirr": [xirr_near(p, d, g)] * n,
@@ -198,10 +208,10 @@ def build(ctx: BuildContext) -> None:
             lambda x, h=h: f"=({x.col}{R[f'r_{h}_sgn']}*{prev(x, f'r_{h}_sgn')}<0)*1", chg)  # fmt: skip
         add(f"{h}_sign_changes", f"  {h.capitalize()} sign changes (count)",
             lambda x, h=h: f"=SUM({rng(f'r_{h}_chg')})", [cnt] * n, key=ctx.key(f"{h}_sign_changes"))  # fmt: skip
-        add(f"{h}_irr_unique", f"  {h.capitalize()} IRR is unique: one sign change (flag)",
+        add(f"{h}_irr_unique", f"  {h.capitalize()} IRR guaranteed unique (flag)",
             lambda x, h=h: f"=({x.col}{R[f'{h}_sign_changes']}=1)*1", [1.0 if cnt == 1 else 0.0] * n,
             key=ctx.key(f"{h}_irr_unique"))  # fmt: skip
-    ctx.registry["returns.rows"] = dict(R)
+    ctx.registry["returns_irr.rows"] = dict(R)
 
 
 def checks(ctx: BuildContext) -> dict[str, str]:
@@ -209,7 +219,7 @@ def checks(ctx: BuildContext) -> dict[str, str]:
     n = ctx.n
     cols = list(c.workbook.period_cols)
     a, z = cols[0], cols[-1]
-    R = ctx.registry["returns.rows"]
+    R = ctx.registry["returns_irr.rows"]
     r = c.rows()
     src = {q.name: ctx.source(q.name) for q in INPUTS}
     S = lambda port, x: src[port].format(col=x.col) if "{col}" in src[port] else src[port]  # noqa: E731
@@ -295,6 +305,7 @@ RETURNS_IRR = Module(
         ],
         "out": [
             "Further holders (lenders, sponsor promote): one module use per holder's flows",
+            "An `irr_guess` outside [0, 0.5] ratio/year (the module rejects it: XIRR() in the workbook returns #NUM! below 0 and can overshoot above about 0.75)",
             "An IRR outside (-0.99, 10]; a guess nearer the wrong root (XIRR() may then find that root: the check that the NPV at the answer is nil still holds, and the unique flag reads 0)",
             "Terminal value, and cost of equity or WACC build-up (the discount rates are inputs)",
             "Payback measured in years or interpolated within a period (it is a whole period number), on discounted flows, and a payback that is reached, lost and reached again",

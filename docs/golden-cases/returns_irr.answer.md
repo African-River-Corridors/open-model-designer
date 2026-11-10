@@ -1,7 +1,7 @@
-# Golden case returns_irr_4 — answer and working
+# Golden case returns_irr — answer and working
 
 Calculator: Python `decimal` at 50 digits (a short script of its own,
-same method as returns_irr_1). Root cross-check: `numpy.roots`.
+same method for every IRR case). Root cross-check: `numpy.roots`.
 
 ## Method
 

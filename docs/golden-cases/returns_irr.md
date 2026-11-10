@@ -1,7 +1,6 @@
-# Golden case returns_irr_4 — request (brief as given)
+# Golden case returns_irr — request (brief as given)
 
 Independent reviewer, golden case calculated from first principles. No code repository read.
-Same definitions as returns_irr_1, but 4 periods.
 
 Periods dated 0, 365, 730, 1095 days (whole days; years = days / 365):
 - Project flows: -1000, 800, 800, -500
