@@ -434,6 +434,83 @@ class Calcs(_PeriodGrid):
 
 
 # ==============================================================================================
+# Sheet set — a template names its own sheets and tab order
+# ==============================================================================================
+_STR = re.compile(r'"(?:[^"]|"")*"')  # a string literal inside a formula
+#: a sheet reference: 'quoted name'!, plain_name! or a 3-D First:Last!, never the tail of a longer name. A first name
+#: that reads as a cell is the start of a range (``Calcs!A1:Calcs!B1``), not a 3-D reference.
+_PLAIN = r"[A-Za-z_\\][\w.]*"
+_NOT_CELL = r"(?!(?i:[A-Z]{1,3}\d+|R\d*C\d*|R|C):)"  # _CELL_LIKE, then the colon
+_SHEET_REF = re.compile(rf"(?<![\w.'])(?:'((?:[^']|'')+)'|((?:{_NOT_CELL}{_PLAIN}:)?{_PLAIN}))!")
+_BAD_TITLE = re.compile(r"[\\*?:/\[\]]")
+
+
+def _ref_names(m: re.Match) -> list[str]:
+    """The sheet names in one matched reference: one, or two for a 3-D range (a sheet name never holds a colon)."""
+    body = m.group(1).replace("''", "'") if m.group(1) is not None else m.group(2)
+    return body.split(":")
+
+
+def _sheet_refs(formula: str) -> list[str]:
+    """The sheet names a formula refers to, outside its string literals."""
+    return [
+        n for part in _STR.split(formula) for m in _SHEET_REF.finditer(part) for n in _ref_names(m)
+    ]
+
+
+def _rewrite_refs(formula: str, names: Mapping[str, str]) -> str:
+    """``formula`` with every reference to a sheet in ``names`` pointed at its new name, quoted when needed.
+    String literals are left alone."""
+
+    def sub(m: re.Match) -> str:
+        old = _ref_names(m)
+        if not any(n in names for n in old):
+            return m.group(0)
+        new = [names.get(n, n) for n in old]
+        if len(new) == 1:
+            return f"{_quote_sheet(new[0])}!"
+        plain = all(_quote_sheet(n) == n for n in new)
+        body = ":".join(new)
+        return f"{body}!" if plain else "'" + body.replace("'", "''") + "'!"
+
+    parts, literals = _STR.split(formula), _STR.findall(formula)
+    out = [_SHEET_REF.sub(sub, parts[0])]
+    for lit, part in zip(literals, parts[1:]):
+        out += [lit, _SHEET_REF.sub(sub, part)]
+    return "".join(out)
+
+
+class SheetSet:
+    """The sheets of a template, in tab order: ``[(build name, name the reader sees), ...]``.
+    Apply it with :meth:`Workbook.apply_sheet_set`."""
+
+    def __init__(self, pairs: Sequence[tuple[str, str]]):
+        pairs = tuple((str(a), str(b)) for a, b in pairs)
+        olds, news = [a for a, _ in pairs], [b for _, b in pairs]
+        for what, names in (("build", olds), ("new", news)):
+            dup = sorted({n for n in names if names.count(n) > 1})
+            if dup:
+                raise ValueError(f"a sheet set names each {what} name once: {dup} repeat")
+        for n in news:
+            if not n or len(n) > 31 or _BAD_TITLE.search(n) or n[0] == "'" or n[-1] == "'":
+                raise ValueError(f"{n!r} is not a valid sheet name")
+        self.pairs = pairs
+
+    @property
+    def names(self) -> dict[str, str]:
+        """{build name: new name}."""
+        return dict(self.pairs)
+
+    @property
+    def order(self) -> list[str]:
+        """The new names, in tab order."""
+        return [b for _, b in self.pairs]
+
+    def __repr__(self) -> str:
+        return f"SheetSet({list(self.pairs)!r})"
+
+
+# ==============================================================================================
 # Workbook
 # ==============================================================================================
 class Workbook:
@@ -469,6 +546,7 @@ class Workbook:
         self._input_row = 4
         self._calcs: Calcs | None = None
         self._period_sheets: list[PeriodSheet] = []
+        self._tables: list[Table] = []
         self.units_col: int | None = None  # see set_layout
         self._painted: set[str] = (
             set()
@@ -548,6 +626,56 @@ class Workbook:
                 f"got {sorted(names)}"
             )
         self._wb._sheets = [self._wb[n] for n in names]
+
+    def apply_sheet_set(self, sheets: SheetSet) -> None:
+        """Rename and reorder the sheets to ``sheets``, rewriting every formula that names a renamed sheet.
+
+        All or nothing: it raises and changes nothing unless the set names every sheet exactly once and, after the
+        rewrite, no formula or internal link still names an old sheet. Calcs, period sheets, source tables and
+        input refs follow their new names. A 3-D reference (``Jan:Mar!A1``) is rewritten too.
+        """
+        names = sheets.names
+        have = list(self._wb.sheetnames)
+        missing, extra = sorted(set(have) - set(names)), sorted(set(names) - set(have))
+        if missing or extra:
+            raise ValueError(
+                f"the sheet set must name every sheet once: not named {missing}, not in the book {extra}"
+            )
+        gone = set(names) - set(names.values())  # old names no sheet will carry
+        formulas: dict[tuple[str, str], str] = {}
+        links: dict[tuple[str, str], str] = {}
+        for ws in self._wb.worksheets:
+            for row in ws.iter_rows():
+                for c in row:
+                    v = c.value
+                    if isinstance(v, str) and v.startswith("="):
+                        formulas[(ws.title, c.coordinate)] = _rewrite_refs(v, names)
+                    if c.hyperlink is not None and c.hyperlink.location:
+                        links[(ws.title, c.coordinate)] = _rewrite_refs(c.hyperlink.location, names)
+        stale = sorted(
+            f"{sheet}!{coord}"
+            for (sheet, coord), f in [*formulas.items(), *links.items()]
+            if gone & set(_sheet_refs(f))
+        )
+        if stale:  # a reference the rewrite could not reach
+            raise ValueError(f"after the rewrite these still name an old sheet: {stale[:5]}")
+
+        for (sheet, coord), f in formulas.items():
+            self._wb[sheet][coord].value = f
+        for (sheet, coord), loc in links.items():
+            self._wb[sheet][coord].hyperlink.location = loc
+        by_old = {t: self._wb[t] for t in have}
+        for i, ws in enumerate(by_old.values()):  # two steps, so a swap never collides with itself
+            ws.title = f"__omd_sheet_{i}"
+        for old, ws in by_old.items():
+            ws.title = names[old]
+        self._wb._sheets = [by_old[old] for old, _new in sheets.pairs]
+
+        for grid in [self._calcs, *self._period_sheets, *self._tables]:
+            if grid is not None:
+                grid.name = grid.ws.title
+        self._painted = {names.get(t, t) for t in self._painted}
+        self._refs = {k: _rewrite_refs(ref, names) for k, ref in self._refs.items()}
 
     @property
     def full_calc_on_load(self) -> bool:
@@ -637,7 +765,9 @@ class Workbook:
             r += 1
         last = r - 1
         ws.freeze_panes = "A3"
-        return Table(ws, name, headers, first, last)
+        table = Table(ws, name, headers, first, last)
+        self._tables.append(table)
+        return table
 
     # -- Calcs --------------------------------------------------------------------------------
     def calcs(self, name: str = "Calcs", *, reserve: int = 0) -> Calcs:
@@ -655,6 +785,9 @@ class Workbook:
         index: int | None = None,
     ) -> PeriodSheet:
         """An extra sheet whose columns line up with Calcs (see :class:`PeriodSheet`), at the end or at ``index``."""
+        # openpyxl would quietly call it "Name1", and address() would point at the other sheet
+        if name.lower() in {n.lower() for n in self._wb.sheetnames}:
+            raise ValueError(f"the book already has a sheet {name!r}")
         ws = self._wb.create_sheet(name, index)
         ps = PeriodSheet(self, ws, name, title=title or name, subtitle=subtitle)
         self._period_sheets.append(ps)

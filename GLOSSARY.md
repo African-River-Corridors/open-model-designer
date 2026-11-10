@@ -87,6 +87,14 @@ A rule inside a module that holds from a stated date, so a change in law adds a 
 A starting model built from modules and a standard set of outputs — for example project finance — that a project copies and then edits.
 _Avoid_: module, skeleton
 
+**Sheet set**:
+The sheets a template names, in tab order: each build name with the name the reader sees. Applying it renames the sheets and rewrites every formula that points at them.
+_Avoid_: sheet map, rename list
+
+**Period sheet**:
+An extra sheet whose columns line up with Calcs (the same Open and period columns and header row), with rows that link to Calcs.
+_Avoid_: view sheet, mirror sheet
+
 ### Standards
 
 **Structure standard**:
