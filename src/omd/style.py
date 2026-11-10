@@ -273,7 +273,8 @@ def audit_style(
 
     A cover sheet (`cover_sheets`) is a painted page, not a table, and is not audited.
 
-    * only hard-coded input cells (value column of the inputs sheet) carry the input shading, and only a chapter bar
+    * only hard-coded input cells (constants on the inputs sheet, in any column: a case grid has one per case)
+      carry the input shading, and only a chapter bar
       (a fill in the accent colour, off the inputs sheet) carries any other fill;
     * gridlines are as the profile says;
     * a grouped number format follows the profile's negative style.
@@ -296,7 +297,9 @@ def audit_style(
                 if c.fill is not None and c.fill.fill_type == "solid":
                     color = str(c.fill.fgColor.rgb or "").upper()
                     is_input = (
-                        ws.title == inputs_sheet and c.column == 2 and color.endswith(want_fill)
+                        ws.title == inputs_sheet
+                        and color.endswith(want_fill)
+                        and not (isinstance(c.value, str) and c.value.startswith("="))
                     )
                     is_bar = (
                         bar_fill is not None
