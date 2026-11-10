@@ -231,7 +231,8 @@ def test_gate_no_typed_number_outside_the_input_sheets(built):
     _ext, comp = built
     assert (
         audit_hardcodes(
-            saved(comp), input_sheets=("Inputs", "Feed", "Stored"), declared=pf.HARDCODES_DECLARED
+            saved(comp),
+            declared=pf.HARDCODES_DECLARED,  # the Stored sheet is guarded, not a finding
         )
         == []
     )
