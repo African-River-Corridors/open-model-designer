@@ -51,6 +51,10 @@ The conditions a model must pass to be trusted — reconciliations, baselines, t
 **Style**:
 How a model looks: number formats, fonts, colours, unit labels and total layout.
 
+**Solved value**:
+An input the build sets so a target holds (a tariff that meets a target return), written as a marked input with a live check that reads 1 once an edited input moves the residual. Rebuild to solve it again.
+_Avoid_: goal seek, plug, stored result (a stored result is a snapshot with no live residual)
+
 ### Reuse
 
 **Module**:
