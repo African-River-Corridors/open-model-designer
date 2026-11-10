@@ -785,6 +785,9 @@ class Workbook:
         index: int | None = None,
     ) -> PeriodSheet:
         """An extra sheet whose columns line up with Calcs (see :class:`PeriodSheet`), at the end or at ``index``."""
+        # openpyxl would quietly call it "Name1", and address() would point at the other sheet
+        if name.lower() in {n.lower() for n in self._wb.sheetnames}:
+            raise ValueError(f"the book already has a sheet {name!r}")
         ws = self._wb.create_sheet(name, index)
         ps = PeriodSheet(self, ws, name, title=title or name, subtitle=subtitle)
         self._period_sheets.append(ps)
