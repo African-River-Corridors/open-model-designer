@@ -134,7 +134,7 @@ def test_gate_fast_audit_of_the_composed_book_has_only_the_modules_own_declared_
     """The composed book is audited by the same rule as each module's worked example: check rows are exempt from
     `CHECK_ROW_EXEMPT`, and a calculation-row breach must be one a module declares in `fast_declared`."""
     _ext, comp = built
-    raw = audit_fast(saved(comp), first_col=3, out=lambda *_: None)
+    raw = audit_fast(saved(comp), first_col=4, units_col=2, out=lambda *_: None)
     declared = [
         tuple(key.partition(" ")[::2]) for st in comp.steps for key in st.module.fast_declared
     ]

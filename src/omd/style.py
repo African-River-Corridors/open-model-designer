@@ -61,6 +61,10 @@ class StyleProfile:
     #: a chapter header on Calcs (one per composed module) is a full-width bar in `accent` with text in `banner_text`;
     #: False writes it as bold accent text with a rule, like a section header
     section_banner: bool = True
+    #: calculation steps on Calcs: a link row's label in italics in the accent colour, a calculation's label in bold
+    #: with a thin rule above the row, and the row that starts a new step a little taller, so each step reads as
+    #: "ingredients, then the result"
+    step_style: bool = True
     banner_text: str = "FFFFFF"
     #: the cover sheet: the page colour (None = `accent`), the title, the fact labels and the fact text
     cover_ground: str | None = None
@@ -176,6 +180,18 @@ class StyleProfile:
         for j in range(1, last_col + 1):
             ws.cell(row=row, column=j).fill = fill
         self.bold(cell, size=size, color=self.banner_text)
+
+    def step_link(self, cell) -> None:
+        """The label of a link row: an ingredient restated above the calculation that uses it."""
+        cell.font = self._font(italic=True, color=self.accent)
+
+    def step_result(self, ws: Worksheet, row: int, last_col: int) -> None:
+        """A calculation row: a bold label and a thin rule above the row, from the label to the last period."""
+        self.bold(ws.cell(row=row, column=1))
+        top = Side(style="thin", color=self.rule)
+        for j in range(1, last_col + 1):
+            c = ws.cell(row=row, column=j)
+            c.border = Border(top=top, bottom=c.border.bottom)
 
     def note(self, cell) -> None:
         """A logic note: one line of italic, muted prose under a header."""

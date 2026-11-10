@@ -72,7 +72,7 @@ def test_each_chapter_body_is_grouped_and_its_header_and_note_are_not(book):
 def test_calcs_freezes_labels_and_headers_and_passes_the_style_audit(book):
     comp, path = book
     ws = openpyxl.load_workbook(path)[comp.calcs.ws.title]
-    assert ws.freeze_panes == "B3"
+    assert ws.freeze_panes == "C3"  # labels and units stay put; Open and the periods scroll
     assert audit_style(path) == []
 
 

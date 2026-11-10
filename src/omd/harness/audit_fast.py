@@ -48,6 +48,7 @@ def audit_fast(
     *,
     calcs_sheet: str = "Calcs",
     first_col: int = 2,
+    units_col: int | None = None,
     declared: dict[tuple[str, str], str] | None = None,
     out=print,
 ) -> FastAudit:
@@ -63,10 +64,11 @@ def audit_fast(
         fs = [v for v in cells if isinstance(v, str) and v.startswith("=")]
         if not fs:
             continue
-        rows.append((r, str(lab or "").strip(), cells, fs))
+        unit = ws.cell(row=r, column=units_col).value if units_col else None
+        rows.append((r, str(lab or "").strip(), cells, fs, unit))
 
     findings = collections.defaultdict(list)
-    for r, lab, cells, fs in rows:
+    for r, lab, cells, fs, unit in rows:
         body = max(fs, key=len)[1:]
 
         # --- FAST 3.02-01 Formulas must be consistent (across the row) --------------------
@@ -110,11 +112,11 @@ def audit_fast(
             findings["4.01-02 NPV function used (never allowed)"].append((r, lab, ""))
 
         # --- FAST 3.05-04/09 Include a units designator in the label ----------------------
-        if lab and not re.search(r"\(.*\)|\$/|%|\bx\b|—\s*\$", lab):
+        if lab and not unit and not re.search(r"\(.*\)|\$/|%|\bx\b|—\s*\$", lab):
             findings["3.05-04/09 no unit designator in the label"].append((r, lab, ""))
 
     # --- FAST 3.05-03 All line items must have a unique label -----------------------------
-    seen = collections.Counter(lab for _r, lab, _c, _f in rows if lab)
+    seen = collections.Counter(lab for _r, lab, _c, _f, _u in rows if lab)
     dupes = {k: v for k, v in seen.items() if v > 1}
     # --- other sheets: NPV on Summary / Cover ---------------------------------------------
     for sh in wb.sheetnames:

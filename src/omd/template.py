@@ -17,6 +17,7 @@ from collections.abc import Collection
 from dataclasses import dataclass, field
 
 import openpyxl
+from openpyxl.utils import column_index_from_string
 
 from . import acceptance
 from .harness import fastblock
@@ -122,6 +123,9 @@ def compose(
     fastblock.reset()
     expected = chained_oracle(steps, external)
     wb = Workbook(title, labels, opening=True, style=style)
+    # A | label, B | unit, C | Open, D.. | periods: each row's unit in a column of its own, as a reader expects.
+    wb.set_layout(open_col=3, first_period_col=4, units_col=2)
+    pcol = {c: column_index_from_string(c) for c in wb.period_cols}
 
     ext_series: dict[str, str] = {}
     ext_scalar: dict[str, str] = {}
@@ -142,11 +146,15 @@ def compose(
     feed_rows: dict[str, int] = {}
     if ext_series:
         feed = wb.add_sheet("Feed")
+        wb.style.white(feed)
+        for col, lab in zip(wb.period_cols, labels, strict=True):
+            wb.style.colhdr(feed[f"{col}1"])
+            feed[f"{col}1"].value = lab
         for r, k in enumerate(ext_series, start=2):
             feed_rows[k] = r
             feed.cell(row=r, column=1, value=k)
             for i, v in enumerate(external[k]):
-                feed.cell(row=r, column=3 + i, value=float(v))
+                feed.cell(row=r, column=pcol[wb.period_cols[i]], value=float(v))
             sources_ext[k] = f"Feed!{{col}}{r}"
     stored_refs = _stored_sheet(wb, stored, external, refs, ext_series, feed_rows) if stored else {}
     sources_ext.update(stored_refs)
@@ -505,7 +513,8 @@ def inputs_drive_outputs(
                 w[sheet][where] = moved[name]
             else:
                 for i, v in enumerate(moved[name]):
-                    w["Feed"].cell(row=where, column=3 + i, value=float(v))
+                    col = comp.wb.period_cols[i]
+                    w["Feed"][f"{col}{where}"] = float(v)
             changed = os.path.join(d, "moved.xlsx")
             w.save(changed)
             values = evaluate_cells(changed, ("Calcs",))

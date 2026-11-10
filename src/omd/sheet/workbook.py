@@ -29,17 +29,21 @@ Sketch::
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
 from openpyxl import Workbook as _OpenpyxlWorkbook
-from openpyxl.utils import get_column_letter
+from openpyxl.utils import column_index_from_string, get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 from omd.style import StyleProfile, get_profile
 
 from . import formatting as F
+
+#: a label's unit: its last bracket, "Interest (USD)" -> ("Interest", "USD"); a long bracket is prose, not a unit
+UNIT_IN_LABEL = re.compile(r"^(.*\S)\s*\(([^()]{1,40})\)\s*$")
 
 _EPOCH = datetime(2026, 1, 1)  # fixed doc timestamp (no wall-clock) -> deterministic content
 
@@ -116,11 +120,15 @@ class Calcs:
         self._periods = wb._periods
         S = wb.style
         S.white(ws)
-        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(wb._all_cols) + 1)
+        last = column_index_from_string(wb._period_cols[-1])
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=last)
         S.title(ws.cell(row=1, column=1, value=f"{name} — one row per line; live formulas"))
 
         self._HDR_ROW = 2
         S.colhdr(ws.cell(row=2, column=1, value=""), right=False)
+        if wb.units_col:
+            S.colhdr(ws.cell(row=2, column=wb.units_col, value="Unit"), right=False)
+            ws.column_dimensions[get_column_letter(wb.units_col)].width = 14
         if wb._open_col:
             S.colhdr(ws.cell(row=2, column=wb._open_col_idx, value="Open"))
         for label, letter in zip(wb._periods, wb._period_cols):
@@ -181,7 +189,7 @@ class Calcs:
     @property
     def last_col(self) -> int:
         """The index of the last period column."""
-        return len(self._wb._all_cols) + 1
+        return column_index_from_string(self._wb._period_cols[-1])
 
     # -- write a section header ---------------------------------------------------------------
     def section(self, label: str, *, note: str | None = None) -> None:
@@ -229,6 +237,9 @@ class Calcs:
         """
         wb = self._wb
         rr = self._row
+        if wb.units_col and (m := UNIT_IN_LABEL.match(label)):
+            label = m.group(1)
+            self.ws.cell(row=rr, column=wb.units_col, value=m.group(2))
         self.ws.cell(row=rr, column=1, value=label)
         self._rows[key] = rr  # set before the loop so roll-forward can reference self
 
@@ -334,6 +345,7 @@ class Workbook:
         self._inputs_ws: Worksheet | None = None
         self._input_row = 4
         self._calcs: Calcs | None = None
+        self.units_col: int | None = None  # see set_layout
         self._painted: set[str] = (
             set()
         )  # sheets laid out by hand (a cover): autosize leaves them alone
@@ -354,11 +366,19 @@ class Workbook:
         """The Opening column (if any) followed by the period columns."""
         return tuple(self._all_cols)
 
-    def set_layout(self, *, open_col: int | None, first_period_col: int) -> None:
+    def set_layout(
+        self, *, open_col: int | None, first_period_col: int, units_col: int | None = None
+    ) -> None:
         """Move the Opening and period columns (1-based indexes), e.g. to make room for a units
-        column. Call it before :meth:`calcs`; a Calcs sheet already written would not move."""
+        column. Call it before :meth:`calcs`; a Calcs sheet already written would not move.
+
+        With `units_col`, Calcs writes each row's unit there: a label's last bracket, "Interest (USD)", becomes the
+        label "Interest" and the unit "USD"."""
         if self._calcs is not None:
             raise ValueError("set_layout must be called before calcs()")
+        if units_col is not None and not 1 < units_col < (open_col or first_period_col):
+            raise ValueError("the units column must sit between the labels and the Opening column")
+        self.units_col = units_col
         if open_col is not None and open_col >= first_period_col:
             raise ValueError("the Opening column must sit left of the first period column")
         self._open_col_idx = open_col
