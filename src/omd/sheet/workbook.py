@@ -109,6 +109,17 @@ class _Ctx:
         return f"=SUMIFS({value_range}," + ",".join(criteria) + ")"
 
 
+_CELL_LIKE = re.compile(r"(?i)[A-Z]{1,3}\d+|R\d*C\d*|R|C")
+
+
+def _quote_sheet(name: str) -> str:
+    """A sheet name as Excel writes it in a reference: quoted, with ``'`` doubled, when needed."""
+    plain = name.replace("_", "").isalnum() and not name[0].isdigit()
+    if plain and not _CELL_LIKE.fullmatch(name):  # "Q1" or "R1C1" would read as a cell
+        return name
+    return "'" + name.replace("'", "''") + "'"
+
+
 class Calcs:
     """The working sheet: one row per line, every cell a live formula shifted across periods."""
 
@@ -164,6 +175,54 @@ class Calcs:
     # -- referencing --------------------------------------------------------------------------
     def rows(self) -> dict[str, int]:
         return dict(self._rows)
+
+    def row_of(self, key: str) -> int:
+        """The row number of the line ``key``. Raises ``KeyError`` naming an unknown key."""
+        try:
+            return self._rows[key]
+        except KeyError:
+            raise KeyError(f"no Calcs row with key {key!r}") from None
+
+    def _qualify(self, ref: str, sheet: bool) -> str:
+        return f"{_quote_sheet(self.name)}!{ref}" if sheet else ref
+
+    def address(
+        self,
+        key: str,
+        *,
+        col: str | None = None,
+        period: int | None = None,
+        open: bool = False,  # noqa: A002 — the public name in the design
+        absolute: bool = True,
+        sheet: bool = True,
+    ) -> str:
+        """The cell address of line ``key``, for a formula on any sheet, e.g. ``Calcs!$E$41``.
+
+        Give exactly one of ``col`` (a column letter), ``period`` (1-based) or ``open=True``
+        (the Open column). ``absolute=False`` drops the ``$`` marks; ``sheet=False`` drops the
+        sheet name. The columns follow :meth:`Workbook.set_layout`.
+        """
+        if sum([col is not None, period is not None, bool(open)]) != 1:
+            raise ValueError("address needs exactly one of col, period or open=True")
+        row = self.row_of(key)
+        wb = self._wb
+        if period is not None:
+            if not 1 <= period <= len(wb._period_cols):
+                raise ValueError(f"period must be 1..{len(wb._period_cols)}, got {period}")
+            col = wb._period_cols[period - 1]
+        elif open:
+            if wb._open_col is None:
+                raise ValueError("this workbook has no Open column")
+            col = wb._open_col
+        d = "$" if absolute else ""
+        return self._qualify(f"{d}{col}{d}{row}", sheet)
+
+    def span(self, key: str, *, absolute: bool = True, sheet: bool = True) -> str:
+        """The range over every period column of line ``key``, e.g. ``Calcs!$E$41:$AF$41``."""
+        row = self.row_of(key)
+        first, last = self._wb._period_cols[0], self._wb._period_cols[-1]
+        d = "$" if absolute else ""
+        return self._qualify(f"{d}{first}{d}{row}:{d}{last}{d}{row}", sheet)
 
     @property
     def workbook(self) -> Workbook:
@@ -397,6 +456,11 @@ class Workbook:
     @property
     def sheet_names(self) -> list[str]:
         return list(self._wb.sheetnames)
+
+    @property
+    def worksheets(self) -> tuple[Worksheet, ...]:
+        """Every worksheet, in tab order."""
+        return tuple(self._wb.worksheets)
 
     def sheet(self, name: str) -> Worksheet:
         """A worksheet by name."""
